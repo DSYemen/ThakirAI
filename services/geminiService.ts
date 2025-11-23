@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { MemoryItem, MediaType } from "../types";
+import { MemoryItem, MediaType, ReminderFrequency } from "../types";
 
 const getAI = () => {
     if (!process.env.API_KEY) {
@@ -13,28 +13,44 @@ const cleanBase64 = (data: string) => {
   return data.replace(/^data:.*?;base64,/, '');
 };
 
+interface AnalysisResult {
+    transcription: string;
+    summary: string;
+    tags: string[];
+    detectedReminder?: {
+        isoTimestamp: string;
+        frequency: ReminderFrequency;
+    } | null;
+}
+
 export const analyzeMedia = async (
   type: MediaType, 
   base64Data: string, 
   textContext: string = ""
-): Promise<{ transcription: string; summary: string; tags: string[] }> => {
+): Promise<AnalysisResult> => {
   
   const ai = getAI();
-  const model = "gemini-2.5-flash"; // Efficient for multimodal
+  const model = "gemini-2.5-flash"; 
 
-  let prompt = "قم بتحليل هذا المحتوى بدقة عالية. ";
+  const now = new Date();
+  const currentContext = `
+  التوقيت الحالي للمستخدم هو: ${now.toISOString()} (${now.toLocaleDateString('en-US', { weekday: 'long' })}).
+  استخدم هذا التوقيت لحساب أي تواريخ نسبية بدقة (مثال: "غداً"، "الجمعة القادم"، "بعد ساعة").
+  `;
+
+  let prompt = "قم بتحليل هذا المحتوى بدقة عالية. " + currentContext;
   const parts: any[] = [];
 
   if (type === MediaType.AUDIO) {
-    prompt += "قم بنسخ (Transcribe) الكلام بدقة، ثم لخص الموضوع، واستخرج أهم 5 وسوم.";
+    prompt += "قم بنسخ (Transcribe) الكلام بدقة، لخص الموضوع، استخرج الوسوم. إذا ذكر المستخدم موعداً للتذكير أو تكراراً (مثال: ذكرني كل يوم، موعد الطبيب غداً)، استخرج بيانات التذكير.";
     parts.push({
       inlineData: {
-        mimeType: "audio/mp3", // Generic audio container
+        mimeType: "audio/mp3", 
         data: cleanBase64(base64Data)
       }
     });
   } else if (type === MediaType.IMAGE) {
-    prompt += "صف الصورة بدقة، وحدد العناصر المرئية، الألوان، والمشاعر، واستخرج وسوم دقيقة.";
+    prompt += "صف الصورة، حدد العناصر، استخرج وسوم. إذا كانت الصورة تحتوي على نص لموعد (مثال: دعوة، تذكرة، ورقة ملاحظات)، استخرج بيانات التذكير.";
     parts.push({
       inlineData: {
         mimeType: "image/jpeg",
@@ -42,15 +58,15 @@ export const analyzeMedia = async (
       }
     });
   } else if (type === MediaType.VIDEO) {
-    prompt += "حلل هذا الفيديو. صف ما يحدث بصرياً وما يقال صوتياً. لخص الأحداث واستخرج وسوم.";
+    prompt += "حلل الفيديو بصرياً وصوتياً. استخرج وسوم. إذا تم ذكر موعد أو ظهر تاريخ مهم، استخرج بيانات التذكير.";
     parts.push({
       inlineData: {
-        mimeType: "video/mp4", // Assume MP4/WebM compatible
+        mimeType: "video/mp4", 
         data: cleanBase64(base64Data)
       }
     });
   } else {
-     prompt += "لخص هذا النص واستخرج الوسوم والمواضيع الرئيسية.";
+     prompt += "لخص النص، استخرج الوسوم. إذا طلب المستخدم تذكيراً (مثال: 'ذكرني شراء الحليب مساءً')، استخرج بيانات التذكير.";
   }
 
   if (textContext) {
@@ -69,11 +85,24 @@ export const analyzeMedia = async (
           type: Type.OBJECT,
           properties: {
             transcription: { type: Type.STRING, description: "النص الكامل أو الوصف الدقيق" },
-            summary: { type: Type.STRING, description: "ملخص قصير ومركز (لا يزيد عن 30 كلمة)" },
+            summary: { type: Type.STRING, description: "ملخص قصير ومركز" },
             tags: { 
               type: Type.ARRAY, 
               items: { type: Type.STRING },
-              description: "قائمة بـ 3-5 وسوم دقيقة" 
+              description: "3-5 وسوم دقيقة" 
+            },
+            detectedReminder: {
+                type: Type.OBJECT,
+                nullable: true,
+                description: "يملأ فقط إذا تم اكتشاف نية تذكير صريحة",
+                properties: {
+                    isoTimestamp: { type: Type.STRING, description: "تاريخ ووقت التذكير بصيغة ISO 8601" },
+                    frequency: { 
+                        type: Type.STRING, 
+                        enum: ['ONCE', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'],
+                        description: "نوع التكرار" 
+                    }
+                }
             }
           }
         }
@@ -84,14 +113,16 @@ export const analyzeMedia = async (
     return {
       transcription: result.transcription || "",
       summary: result.summary || "",
-      tags: result.tags || []
+      tags: result.tags || [],
+      detectedReminder: result.detectedReminder || null
     };
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
     return { 
         transcription: "", 
         summary: "لم نتمكن من تحليل المحتوى تلقائياً.", 
-        tags: ["مراجعة_يدوية"] 
+        tags: ["مراجعة_يدوية"],
+        detectedReminder: null
     };
   }
 };
@@ -121,7 +152,7 @@ export const smartSearch = async (query: string, memories: MemoryItem[]): Promis
     2. "results": قائمة بالذكريات ذات الصلة، بحيث:
        - "id": معرف الذكرى.
        - "score": نسبة المطابقة من 0 إلى 100 (حيث 100 تطابق تام).
-       - "reason": سبب اختيار هذه الذكرى بكلمات قليلة (مثل: "ذكرى من نفس الموقع"، "تحتوي على الكلمة المفتاحية").
+       - "reason": سبب اختيار هذه الذكرى بكلمات قليلة.
     
     رتب النتائج (results) تنازلياً حسب الـ score.
     `;

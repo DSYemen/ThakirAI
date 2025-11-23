@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, Video, Mic, Type, Check, Loader2, Bell, X, Calendar } from 'lucide-react';
+import { Camera, Video, Mic, Type, Check, Loader2, Bell, X, Calendar, Sparkles } from 'lucide-react';
 import { analyzeMedia } from '../services/geminiService';
 import { saveMemory } from '../services/db';
 import { MediaType, MemoryItem, Reminder, ReminderFrequency } from '../types';
@@ -12,6 +12,7 @@ export const CaptureView: React.FC = () => {
   const [inputText, setInputText] = useState("");
   const [status, setStatus] = useState<string>(""); 
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
+  const [autoReminderDetected, setAutoReminderDetected] = useState<boolean>(false);
   
   // Reminder State
   const [showReminderModal, setShowReminderModal] = useState(false);
@@ -135,6 +136,16 @@ export const CaptureView: React.FC = () => {
         const base64 = await blobToBase64(blob);
         const analysis = await analyzeMedia(type, base64, inputText);
 
+        let finalReminder = activeReminder;
+        // Auto-detect reminder logic
+        if (!finalReminder && analysis.detectedReminder) {
+            finalReminder = {
+                timestamp: new Date(analysis.detectedReminder.isoTimestamp).getTime(),
+                frequency: analysis.detectedReminder.frequency
+            };
+            setAutoReminderDetected(true);
+        }
+
         const memory: MemoryItem = {
             id: crypto.randomUUID(),
             type,
@@ -144,7 +155,7 @@ export const CaptureView: React.FC = () => {
             summary: analysis.summary,
             tags: analysis.tags,
             metadata: { mimeType },
-            reminder: activeReminder
+            reminder: finalReminder
         };
 
         await saveMemory(memory);
@@ -160,6 +171,16 @@ export const CaptureView: React.FC = () => {
     setStatus("processing");
     const analysis = await analyzeMedia(MediaType.TEXT, "", inputText);
     
+    let finalReminder = activeReminder;
+    // Auto-detect reminder logic
+    if (!finalReminder && analysis.detectedReminder) {
+        finalReminder = {
+            timestamp: new Date(analysis.detectedReminder.isoTimestamp).getTime(),
+            frequency: analysis.detectedReminder.frequency
+        };
+        setAutoReminderDetected(true);
+    }
+
     const memory: MemoryItem = {
         id: crypto.randomUUID(),
         type: MediaType.TEXT,
@@ -168,7 +189,7 @@ export const CaptureView: React.FC = () => {
         transcription: inputText,
         summary: analysis.summary,
         tags: analysis.tags,
-        reminder: activeReminder
+        reminder: finalReminder
     };
 
     await saveMemory(memory);
@@ -179,7 +200,10 @@ export const CaptureView: React.FC = () => {
       setStatus("saved");
       setInputText("");
       setActiveReminder(undefined);
-      setTimeout(() => setStatus(""), 2000);
+      setTimeout(() => {
+          setStatus("");
+          setAutoReminderDetected(false);
+      }, 3000);
   };
 
   const saveReminder = () => {
@@ -222,13 +246,21 @@ export const CaptureView: React.FC = () => {
              {status === 'processing' && (
                  <div className="bg-black/50 backdrop-blur px-3 py-1 rounded-full flex items-center gap-2 text-xs text-secondary">
                      <Loader2 size={12} className="animate-spin" />
-                     <span>جاري المعالجة...</span>
+                     <span>جاري المعالجة والتحليل...</span>
                  </div>
              )}
              {status === 'saved' && (
-                 <div className="bg-green-500/20 backdrop-blur px-3 py-1 rounded-full flex items-center gap-2 text-xs text-green-400 border border-green-500/30">
-                     <Check size={12} />
-                     <span>تم الحفظ</span>
+                 <div className="flex flex-col items-end gap-1">
+                     <div className="bg-green-500/20 backdrop-blur px-3 py-1 rounded-full flex items-center gap-2 text-xs text-green-400 border border-green-500/30">
+                         <Check size={12} />
+                         <span>تم الحفظ</span>
+                     </div>
+                     {autoReminderDetected && (
+                         <div className="bg-secondary/20 backdrop-blur px-3 py-1 rounded-full flex items-center gap-2 text-xs text-secondary border border-secondary/30 animate-in slide-in-from-top-2">
+                             <Sparkles size={12} />
+                             <span>تم جدولة تذكير تلقائياً</span>
+                         </div>
+                     )}
                  </div>
              )}
         </div>
@@ -250,7 +282,7 @@ export const CaptureView: React.FC = () => {
                 <textarea
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
-                    placeholder="بماذا تفكر الآن؟"
+                    placeholder="بماذا تفكر الآن؟ (مثال: ذكرني بموعد الطبيب غداً)"
                     className="w-full h-64 bg-card/60 backdrop-blur-md border border-white/10 rounded-2xl p-6 text-xl leading-relaxed text-right focus:outline-none focus:border-primary/50 resize-none shadow-xl placeholder:text-gray-500"
                 />
             )}
