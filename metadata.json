@@ -1,0 +1,8 @@
+{
+  "name": "الذاكرة الذكية (Thakira AI)",
+  "description": "تطبيق ذكي لتخزين الذكريات، الصور، والصوتيات مع تحليل وفهرسة تلقائية باستخدام الذكاء الاصطناعي.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
