@@ -1,25 +1,54 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { getPagedMemories, deleteMemory, saveMemory, FilterOptions, getMemories } from '../services/db';
+import { getPagedMemories, deleteMemory, saveMemory, FilterOptions, getMemories, getMemoryById } from '../services/db';
 import { MemoryItem, MediaType, ReminderFrequency, Reminder } from '../types';
-import { Play, FileText, Image, Trash2, Video, Pause, Search, Filter, MoreVertical, FileJson, FileSpreadsheet, X, Clock, ChevronLeft, Star, Bell, Calendar, ChevronDown, ChevronUp, ArrowUpDown, Loader2 } from 'lucide-react';
+import { generateGoogleCalendarLink } from '../services/calendarService';
+import { Play, FileText, Image, Trash2, Video, Pause, Search, Filter, MoreVertical, FileJson, FileSpreadsheet, X, Clock, ChevronLeft, Star, Bell, Calendar, ChevronDown, ChevronUp, ArrowUpDown, Loader2, CalendarDays } from 'lucide-react';
 
 interface DisplayMemory extends MemoryItem {
     matchScore?: number;
 }
 
 interface MemoryCardProps {
+    id?: string;
     memory: DisplayMemory;
     isPlaying: boolean;
     onTogglePlay: (id: string) => void;
     onToggleFavorite: (e: React.MouseEvent, id: string) => void;
     onDelete: (id: string) => void;
     onSetReminder: (e: React.MouseEvent, memory: MemoryItem) => void;
+    isHighlighted?: boolean;
 }
 
+const formatRelativeTime = (timestamp: number) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    
+    // Normalize to start of day for accurate day diff
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    
+    const diffMs = startOfToday - startOfDate;
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return 'اليوم';
+    if (diffDays === 1) return 'أمس';
+    if (diffDays === 2) return 'قبل يومين';
+    if (diffDays > 2 && diffDays <= 7) return `منذ ${diffDays} أيام`;
+    
+    // For older dates, show full date
+    return date.toLocaleDateString('ar-SA', { weekday: 'long', day: 'numeric', month: 'short' });
+};
+
 const MemoryCard: React.FC<MemoryCardProps> = ({ 
-    memory, isPlaying, onTogglePlay, onToggleFavorite, onDelete, onSetReminder 
+    id, memory, isPlaying, onTogglePlay, onToggleFavorite, onDelete, onSetReminder, isHighlighted
 }) => {
     const [isExpanded, setIsExpanded] = useState(false);
+
+    useEffect(() => {
+        if (isHighlighted) {
+            setIsExpanded(true);
+        }
+    }, [isHighlighted]);
 
     const getIcon = () => {
         switch(memory.type) {
@@ -43,8 +72,9 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
 
     return (
         <div 
+            id={id}
             onClick={() => setIsExpanded(!isExpanded)}
-            className={`group bg-card/50 backdrop-blur border border-white/5 rounded-2xl overflow-hidden transition-all duration-300 shadow-md hover:shadow-lg hover:border-white/10 ${isExpanded ? 'ring-1 ring-primary/30 bg-card/80' : ''}`}
+            className={`group bg-card/50 backdrop-blur border rounded-2xl overflow-hidden transition-all duration-300 shadow-md hover:shadow-lg ${isExpanded ? 'bg-card/80' : ''} ${isHighlighted ? 'border-primary ring-2 ring-primary/50' : 'border-white/5 hover:border-white/10'}`}
         >
             {/* Header Section */}
             <div className="p-4 pb-2 flex justify-between items-start">
@@ -65,7 +95,7 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
                          </div>
                          <span className="text-[10px] text-gray-500 mt-0.5 font-medium flex items-center gap-1">
                             <Clock size={10} />
-                            {new Date(memory.createdAt).toLocaleDateString('ar-SA', { weekday: 'long', day: 'numeric', month: 'short' })}
+                            {formatRelativeTime(memory.createdAt)}
                          </span>
                      </div>
                  </div>
@@ -136,6 +166,20 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
                             {memory.transcription || memory.content}
                         </p>
                     </div>
+
+                    {/* Add to Calendar Button (if reminder exists) */}
+                    {memory.reminder && (
+                         <button 
+                             onClick={(e) => {
+                                 e.stopPropagation();
+                                 generateGoogleCalendarLink(memory);
+                             }}
+                             className="w-full flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 py-2 rounded-lg text-xs transition-colors"
+                         >
+                             <CalendarDays size={14} className="text-blue-400" />
+                             إضافة لتقويم جوجل
+                         </button>
+                    )}
                 </div>
             )}
 
@@ -204,7 +248,11 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
     );
 };
 
-export const MemoriesView: React.FC = () => {
+interface MemoriesViewProps {
+    highlightedMemoryId?: string | null;
+}
+
+export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId }) => {
   // State for Memories & Pagination
   const [memories, setMemories] = useState<DisplayMemory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -232,6 +280,36 @@ export const MemoriesView: React.FC = () => {
 
   // Infinite Scroll Ref
   const observerTarget = useRef(null);
+
+  // Handle Highlighted Memory Logic
+  useEffect(() => {
+    if (highlightedMemoryId) {
+        handleHighlight(highlightedMemoryId);
+    }
+  }, [highlightedMemoryId]);
+
+  const handleHighlight = async (id: string) => {
+    // Check if already in view
+    const exists = memories.find(m => m.id === id);
+    if (!exists) {
+        try {
+            const memory = await getMemoryById(id);
+            if (memory) {
+                setMemories(prev => [memory as DisplayMemory, ...prev]);
+            }
+        } catch (e) {
+            console.error("Failed to fetch highlighted memory", e);
+        }
+    }
+
+    // Delay slighty to allow render
+    setTimeout(() => {
+        const el = document.getElementById(`memory-card-${id}`);
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, 200);
+  };
 
   // Reset and Load on Filters Change
   useEffect(() => {
@@ -297,7 +375,11 @@ export const MemoriesView: React.FC = () => {
         if (reset) {
             setMemories(newItems);
         } else {
-            setMemories(prev => [...prev, ...newItems]);
+            // Deduplicate in case highlighter added it
+            setMemories(prev => {
+                const combined = [...prev, ...newItems];
+                return Array.from(new Map(combined.map(item => [item.id, item])).values());
+            });
         }
 
         setCursor(result.nextCursor);
@@ -435,7 +517,7 @@ export const MemoriesView: React.FC = () => {
         className={`px-3 py-1 rounded-md text-[10px] font-medium transition-all whitespace-nowrap border ${
             timeFilter === type 
             ? 'bg-secondary/20 border-secondary text-secondary shadow-[0_0_10px_rgba(168,85,247,0.2)]' 
-            : 'bg-transparent border-white/5 text-gray-400 hover:bg-white/5'
+            : 'bg-transparent border-white/5 text-gray-400 hover:bg-white/10'
         }`}
       >
           {label}
@@ -583,12 +665,14 @@ export const MemoriesView: React.FC = () => {
                 {memories.map((mem: DisplayMemory) => (
                     <MemoryCard 
                         key={mem.id}
+                        id={`memory-card-${mem.id}`}
                         memory={mem}
                         isPlaying={playingId === mem.id}
                         onTogglePlay={togglePlay}
                         onToggleFavorite={handleToggleFavorite}
                         onDelete={handleDelete}
                         onSetReminder={openReminderModal}
+                        isHighlighted={highlightedMemoryId === mem.id}
                     />
                 ))}
                 
@@ -656,6 +740,27 @@ export const MemoriesView: React.FC = () => {
                         >
                             {reminderDate ? 'حفظ التذكير' : 'إلغاء التذكير'}
                         </button>
+
+                         {/* Add to Calendar Button (in Modal) */}
+                         {selectedMemoryId && (
+                             <div className="border-t border-white/10 pt-4 mt-2">
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        const mem = memories.find(m => m.id === selectedMemoryId);
+                                        if (mem && mem.reminder) {
+                                            generateGoogleCalendarLink(mem);
+                                        } else {
+                                            alert("يرجى حفظ التذكير أولاً قبل الإضافة للتقويم");
+                                        }
+                                    }}
+                                    className="w-full flex items-center justify-center gap-2 text-xs text-blue-400 hover:underline"
+                                >
+                                    <CalendarDays size={14} />
+                                    إضافة إلى تقويم الهاتف (Google Calendar)
+                                </button>
+                             </div>
+                         )}
                     </div>
                 </div>
             </div>

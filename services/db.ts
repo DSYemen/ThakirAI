@@ -67,6 +67,17 @@ export const getMemories = async (): Promise<MemoryItem[]> => {
   });
 };
 
+export const getMemoryById = async (id: string): Promise<MemoryItem | undefined> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get(id);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
 export interface FilterOptions {
   type: MediaType | 'ALL';
   timeFilter: 'ALL' | 'TODAY' | 'WEEK' | 'MONTH' | 'YEAR';

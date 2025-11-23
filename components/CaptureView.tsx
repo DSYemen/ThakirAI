@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, Video, Mic, Type, Check, Loader2, Bell, X, Calendar, Sparkles } from 'lucide-react';
+import { Camera, Video, Mic, Type, Check, Loader2, Bell, X, Calendar, Sparkles, CalendarDays } from 'lucide-react';
 import { analyzeMedia } from '../services/geminiService';
 import { saveMemory } from '../services/db';
+import { generateGoogleCalendarLink } from '../services/calendarService';
 import { MediaType, MemoryItem, Reminder, ReminderFrequency } from '../types';
 
 type CaptureMode = 'AUDIO' | 'VIDEO' | 'IMAGE' | 'TEXT';
@@ -427,6 +428,26 @@ export const CaptureView: React.FC = () => {
                         >
                             تأكيد التذكير
                         </button>
+                        
+                         {/* Calendar Button inside modal (Active only if date is selected) */}
+                         {reminderDate && (
+                             <div className="border-t border-white/10 pt-4 mt-2">
+                                 <button
+                                     onClick={() => {
+                                        const tempMemory: MemoryItem = {
+                                            id: 'temp', type: MediaType.TEXT, content: '', createdAt: Date.now(), tags: [],
+                                            summary: 'تذكير جديد',
+                                            reminder: { timestamp: new Date(reminderDate).getTime(), frequency: reminderFreq }
+                                        };
+                                        generateGoogleCalendarLink(tempMemory);
+                                     }}
+                                     className="w-full flex items-center justify-center gap-2 text-xs text-blue-400 hover:underline"
+                                 >
+                                     <CalendarDays size={14} />
+                                     إضافة إلى تقويم الهاتف (Google Calendar)
+                                 </button>
+                             </div>
+                         )}
                     </div>
                 </div>
             </div>
