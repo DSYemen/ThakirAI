@@ -1,8 +1,16 @@
+
 export enum MediaType {
   TEXT = 'TEXT',
   AUDIO = 'AUDIO',
   IMAGE = 'IMAGE',
   VIDEO = 'VIDEO'
+}
+
+export type ReminderFrequency = 'ONCE' | 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY';
+
+export interface Reminder {
+  timestamp: number;
+  frequency: ReminderFrequency;
 }
 
 export interface MemoryItem {
@@ -13,6 +21,8 @@ export interface MemoryItem {
   summary?: string;
   tags: string[];
   createdAt: number;
+  isFavorite?: boolean;
+  reminder?: Reminder; // New property for reminders
   metadata?: {
     duration?: number;
     mimeType?: string;
@@ -23,4 +33,5 @@ export interface MemoryItem {
 export interface SearchResult {
   item: MemoryItem;
   relevanceReason: string;
+  score: number;
 }
