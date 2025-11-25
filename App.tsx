@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Navigation } from './components/Navigation';
 import { CaptureView } from './components/CaptureView';
@@ -28,7 +29,7 @@ function App() {
             // 1. Trigger Notification
             new Notification("تذكير من الذاكرة الذكية", {
               body: memory.summary || "لديك ذكرى تستحق الاسترجاع!",
-              icon: '/icon.png', // Assuming pwa icon exists, or fallback
+              icon: '/logo.svg', // Updated icon path
               dir: 'rtl'
             });
 
@@ -49,11 +50,6 @@ function App() {
                 case 'YEARLY': nextDate.setFullYear(oldDate.getFullYear() + 1); break;
               }
               
-              // Ensure we don't set a time in the past if the app was closed for a long time
-              // For a robust system, we might want to keep adding intervals until > now, 
-              // but for this MVP, setting it to next logical interval relative to *scheduled time* is standard.
-              // If that time is still in past, the next tick will catch it (or we can skip).
-              // Let's just update the timestamp.
               updatedMemory.reminder = {
                 ...memory.reminder,
                 timestamp: nextDate.getTime()
