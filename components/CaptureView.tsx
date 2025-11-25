@@ -55,7 +55,7 @@ export const CaptureView: React.FC = () => {
         // Request Camera Permission explicitly for Android
         const camStatus = await CapacitorCamera.checkPermissions();
         if (camStatus.camera !== 'granted') {
-            await CapacitorCamera.requestPermissions({ permissions: ['camera'] });
+            await CapacitorCamera.requestPermissions({ permissions: ['camera', 'photos'] });
         }
     } catch (e) {
         console.warn("Capacitor permission check skipped (web mode)");
@@ -493,29 +493,6 @@ export const CaptureView: React.FC = () => {
                         </button>
                     </div>
                 )}
-                
-                {/* Secondary Inputs Row */}
-                <div className="flex items-center gap-2 w-full">
-                     {/* Reminder Button (Global for convenience, but specific flow is in confirmation modal now too) */}
-                     <button 
-                        onClick={() => setShowReminderModal(true)}
-                         className={`relative p-3 rounded-full border transition-all duration-300 ${activeReminder ? 'bg-secondary border-secondary text-white shadow-[0_0_15px_rgba(168,85,247,0.5)]' : 'bg-white/5 border-white/10 text-gray-400'}`}
-                     >
-                         <Bell size={20} fill={activeReminder ? "currentColor" : "none"} className={activeReminder ? "animate-pulse" : ""} />
-                         {activeReminder && <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-dark"></span>}
-                     </button>
-
-                    {/* Context Input */}
-                    {mode !== 'TEXT' && (
-                        <input
-                            type="text"
-                            value={inputText}
-                            onChange={(e) => setInputText(e.target.value)}
-                            placeholder="أضف وصفاً اختيارياً..."
-                            className="flex-1 bg-white/5 border border-white/10 rounded-full py-3 px-4 text-center text-sm focus:outline-none focus:bg-white/10 transition-colors"
-                        />
-                    )}
-                </div>
             </div>
         </div>
 

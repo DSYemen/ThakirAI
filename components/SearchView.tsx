@@ -1,11 +1,14 @@
-
 import React, { useState, useEffect } from 'react';
-import { Send, Sparkles, Bot, Search as SearchIcon, Calendar, ArrowUpRight, Play, Video, Image as ImageIcon, FileText, X, ChevronDown, ChevronUp, Clock, Trash2, History, Mic, MicOff } from 'lucide-react';
+import { Send, Sparkles, Bot, Search as SearchIcon, Calendar, ArrowUpRight, Play, Video, Image as ImageIcon, FileText, X, ChevronDown, ChevronUp, Clock, Trash2, History, Mic, MicOff, AlignRight, LayoutList, ExternalLink } from 'lucide-react';
 import { getMemories } from '../services/db';
 import { smartSearch } from '../services/geminiService';
 import { MediaType, SearchResult, MemoryItem } from '../types';
 
-export const SearchView: React.FC = () => {
+interface SearchViewProps {
+  onJumpToMemory: (id: string) => void;
+}
+
+export const SearchView: React.FC<SearchViewProps> = ({ onJumpToMemory }) => {
   const [query, setQuery] = useState("");
   const [response, setResponse] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -234,30 +237,46 @@ export const SearchView: React.FC = () => {
         {(response || results.length > 0) && !isSearching && (
             <div className="w-full max-w-md animate-in slide-in-from-bottom-2 space-y-6">
                 
-                {/* AI Answer Bubble */}
-                <div className="flex gap-3 items-start">
-                    <div className="bg-gradient-to-br from-primary to-secondary p-2 rounded-full mt-1 shrink-0 shadow-lg">
-                        <Bot size={20} className="text-white" />
-                    </div>
-                    <div className="flex-1 bg-card border border-white/10 p-5 rounded-2xl rounded-tr-none text-gray-200 leading-relaxed shadow-lg text-sm relative">
-                        {response}
-                        <div className="absolute -bottom-2 -left-2 bg-dark rounded-full p-1 border border-white/5">
-                            <Sparkles size={12} className="text-secondary" />
+                {/* 1. AI Answer Section */}
+                {response && (
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2 px-2 text-primary text-xs font-bold uppercase tracking-wider">
+                             <AlignRight size={14} />
+                             <span>الإجابة المقترحة</span>
+                        </div>
+                        <div className="flex gap-3 items-start">
+                            <div className="bg-gradient-to-br from-primary to-secondary p-2 rounded-full mt-1 shrink-0 shadow-lg">
+                                <Bot size={20} className="text-white" />
+                            </div>
+                            <div className="flex-1 bg-card border border-primary/20 p-5 rounded-2xl rounded-tr-none text-gray-200 leading-relaxed shadow-lg text-sm relative ring-1 ring-primary/10">
+                                {response}
+                                <div className="absolute -bottom-2 -left-2 bg-dark rounded-full p-1 border border-white/5">
+                                    <Sparkles size={12} className="text-secondary" />
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </div>
+                )}
 
-                {/* Matching Results List */}
+                {/* 2. Divider if both exist */}
+                {response && results.length > 0 && (
+                    <div className="flex items-center gap-3 px-2 py-2">
+                        <div className="h-px bg-white/10 flex-1"></div>
+                        <span className="text-[10px] text-gray-500 font-medium">المصادر</span>
+                        <div className="h-px bg-white/10 flex-1"></div>
+                    </div>
+                )}
+
+                {/* 3. Matching Results List */}
                 {results.length > 0 && (
-                    <div className="space-y-3 pt-4">
+                    <div className="space-y-3">
                         <div className="flex items-center justify-between px-2">
                              <h3 className="text-sm font-bold text-gray-400 flex items-center gap-2">
-                                <SearchIcon size={14} />
-                                نتائج البحث ({results.length})
+                                <LayoutList size={14} />
+                                المصادر والذكريات المرتبطة ({results.length})
                             </h3>
                         </div>
                        
-                        
                         {results.map((res, idx) => {
                             const isExpanded = expandedId === res.item.id;
                             return (
@@ -334,13 +353,28 @@ export const SearchView: React.FC = () => {
                                             <div className="bg-black/20 rounded-lg p-3 text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">
                                                 {res.item.transcription || res.item.content}
                                             </div>
-                                            {res.item.tags.length > 0 && (
-                                                <div className="flex gap-2 mt-3 flex-wrap">
-                                                    {res.item.tags.map(t => (
-                                                        <span key={t} className="text-[10px] text-secondary bg-secondary/10 px-2 py-1 rounded">#{t}</span>
-                                                    ))}
-                                                </div>
-                                            )}
+                                            
+                                            <div className="flex justify-between items-center mt-3">
+                                                {res.item.tags.length > 0 ? (
+                                                    <div className="flex gap-2 flex-wrap">
+                                                        {res.item.tags.map(t => (
+                                                            <span key={t} className="text-[10px] text-secondary bg-secondary/10 px-2 py-1 rounded">#{t}</span>
+                                                        ))}
+                                                    </div>
+                                                ) : <div></div>}
+
+                                                {/* Go to Context Button */}
+                                                <button 
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onJumpToMemory(res.item.id);
+                                                    }}
+                                                    className="flex items-center gap-2 px-3 py-1.5 bg-primary/20 hover:bg-primary/30 text-primary rounded-lg text-xs font-bold transition-colors"
+                                                >
+                                                    <span>عرض في الجدول الزمني</span>
+                                                    <ExternalLink size={12} />
+                                                </button>
+                                            </div>
                                         </div>
                                     )}
                                 </div>

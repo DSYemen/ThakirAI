@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Navigation } from './components/Navigation';
 import { CaptureView } from './components/CaptureView';
@@ -9,6 +8,7 @@ import { ReminderFrequency } from './types';
 
 function App() {
   const [activeTab, setActiveTab] = useState<'capture' | 'memories' | 'search'>('capture');
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   // Request Notification Permission on mount
   useEffect(() => {
@@ -72,14 +72,19 @@ function App() {
     return () => clearInterval(intervalId);
   }, []);
 
+  const handleJumpToMemory = (id: string) => {
+    setHighlightedId(id);
+    setActiveTab('memories');
+  };
+
   const renderView = () => {
     switch (activeTab) {
       case 'capture':
         return <CaptureView />;
       case 'memories':
-        return <MemoriesView />;
+        return <MemoriesView highlightedMemoryId={highlightedId} />;
       case 'search':
-        return <SearchView />;
+        return <SearchView onJumpToMemory={handleJumpToMemory} />;
       default:
         return <CaptureView />;
     }
