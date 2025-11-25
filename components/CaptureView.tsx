@@ -50,6 +50,12 @@ export const CaptureView: React.FC = () => {
 
   const startCamera = async () => {
     setDeviceError(null);
+    
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setDeviceError({ type: 'CAMERA', message: "عذراً، متصفحك لا يدعم الوصول للكاميرا أو أن الاتصال غير آمن (HTTPS مطلوب)." });
+        return;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { facingMode: 'environment' }, 
@@ -84,6 +90,12 @@ export const CaptureView: React.FC = () => {
     setDeviceError(null);
     chunksRef.current = [];
     
+    // Check API support first
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setDeviceError({ type: mode === 'AUDIO' ? 'MIC' : 'CAMERA', message: "عذراً، متصفحك لا يدعم التسجيل." });
+        return;
+    }
+
     let stream = previewStream;
     if (mode === 'AUDIO') {
         try {
@@ -101,7 +113,13 @@ export const CaptureView: React.FC = () => {
         }
     }
 
-    if (!stream) return;
+    if (!stream) {
+        if (mode !== 'AUDIO' && !deviceError) {
+             // Retry starting camera if stream is missing in video mode (and no error yet)
+             startCamera();
+        }
+        return;
+    }
 
     const mimeType = mode === 'VIDEO' ? 'video/webm;codecs=vp8,opus' : 'audio/webm';
     // Fallback for Safari/iOS which prefers mp4/aac or standard webm without codec specs

@@ -3,7 +3,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { getPagedMemories, deleteMemory, saveMemory, FilterOptions, getMemories, getMemoryById } from '../services/db';
 import { MemoryItem, MediaType, ReminderFrequency, Reminder } from '../types';
 import { generateGoogleCalendarLink } from '../services/calendarService';
-import { Play, FileText, Image, Trash2, Video, Pause, Search, Filter, MoreVertical, FileJson, FileSpreadsheet, X, Clock, ChevronLeft, Star, Bell, Calendar, ChevronDown, ChevronUp, ArrowUpDown, Loader2, CalendarDays, Pin, PinOff } from 'lucide-react';
+import { Play, FileText, Image, Trash2, Video, Pause, Search, Filter, MoreVertical, FileJson, FileSpreadsheet, X, Clock, ChevronLeft, Star, Bell, Calendar, ChevronDown, ChevronUp, ArrowUpDown, Loader2, CalendarDays, Pin, PinOff, Check } from 'lucide-react';
 
 interface DisplayMemory extends MemoryItem {
     matchScore?: number;
@@ -376,6 +376,7 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
   // UI State
   const [showMenu, setShowMenu] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [showTimeMenu, setShowTimeMenu] = useState(false); // State for Time Dropdown
   
   // Reminder Modal State
   const [reminderModalOpen, setReminderModalOpen] = useState(false);
@@ -617,32 +618,19 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
   const FilterButton = ({ type, label, icon: Icon }: { type: MediaType | 'ALL', label: string, icon: any }) => (
       <button 
         onClick={() => setFilterType(type)}
-        className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+        title={label}
+        className={`flex items-center justify-center w-9 h-9 rounded-full transition-all duration-300 ${
             filterType === type 
-            ? 'bg-white text-dark shadow-lg scale-105' 
-            : 'bg-white/5 text-gray-400 hover:bg-white/10'
+            ? 'bg-white text-dark shadow-[0_0_15px_rgba(255,255,255,0.3)] scale-110 z-10' 
+            : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white hover:scale-105'
         }`}
       >
-          <Icon size={14} />
-          {label}
-      </button>
-  );
-
-  const TimeFilterButton = ({ type, label }: { type: typeof timeFilter, label: string }) => (
-      <button 
-        onClick={() => setTimeFilter(type)}
-        className={`px-3 py-1 rounded-md text-[10px] font-medium transition-all whitespace-nowrap border ${
-            timeFilter === type 
-            ? 'bg-secondary/20 border-secondary text-secondary shadow-[0_0_10px_rgba(168,85,247,0.2)]' 
-            : 'bg-transparent border-white/5 text-gray-400 hover:bg-white/10'
-        }`}
-      >
-          {label}
+          <Icon size={16} />
       </button>
   );
 
   return (
-    <div className="flex flex-col h-full bg-dark relative" onClick={() => showMenu && setShowMenu(false)}>
+    <div className="flex flex-col h-full bg-dark relative" onClick={() => { showMenu && setShowMenu(false); setShowTimeMenu(false); }}>
       {/* Header & Filter */}
       <div className="sticky top-0 z-30 bg-dark/95 backdrop-blur border-b border-white/5 p-4 space-y-3 shadow-lg shadow-black/20">
           <div className="flex items-center justify-between h-10">
@@ -731,49 +719,92 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
           )}
 
           <div className={`transition-all duration-300 overflow-hidden ${isSearchOpen ? 'h-0 opacity-0' : 'h-auto opacity-100'}`}>
-             <div className="flex gap-2 overflow-x-auto pb-3 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-white/20">
-                 {/* Pinned Filter */}
-                 <button 
-                    onClick={() => setShowPinnedOnly(!showPinnedOnly)}
-                    className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium transition-all whitespace-nowrap border ${
-                        showPinnedOnly 
-                        ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.2)]' 
-                        : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10'
-                    }`}
-                >
-                    <Pin size={14} fill={showPinnedOnly ? "currentColor" : "none"} />
-                    المثبتة
-                </button>
+             <div className="flex items-center gap-2 overflow-x-auto pb-2 pt-1 px-1 [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-white/20">
+                 
+                 {/* Status Filters Group */}
+                 <div className="flex items-center gap-2 shrink-0">
+                    <button 
+                        onClick={() => setShowPinnedOnly(!showPinnedOnly)}
+                        title="المثبتة"
+                        className={`flex items-center justify-center w-9 h-9 rounded-full transition-all border ${
+                            showPinnedOnly 
+                            ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.2)]' 
+                            : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10'
+                        }`}
+                    >
+                        <Pin size={16} fill={showPinnedOnly ? "currentColor" : "none"} />
+                    </button>
 
-                <button 
-                    onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
-                    className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium transition-all whitespace-nowrap border ${
-                        showFavoritesOnly 
-                        ? 'bg-yellow-500/10 border-yellow-500/50 text-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.2)]' 
-                        : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10'
-                    }`}
-                >
-                    <Star size={14} fill={showFavoritesOnly ? "currentColor" : "none"} />
-                    المفضلة
-                </button>
-                <div className="w-px h-6 bg-white/10 mx-1 self-center hidden sm:block" />
-                <FilterButton type="ALL" label="الكل" icon={Filter} />
-                <FilterButton type={MediaType.AUDIO} label="صوتيات" icon={Play} />
-                <FilterButton type={MediaType.VIDEO} label="فيديو" icon={Video} />
-                <FilterButton type={MediaType.IMAGE} label="صور" icon={Image} />
-                <FilterButton type={MediaType.TEXT} label="نصوص" icon={FileText} />
-             </div>
+                    <button 
+                        onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
+                        title="المفضلة"
+                        className={`flex items-center justify-center w-9 h-9 rounded-full transition-all border ${
+                            showFavoritesOnly 
+                            ? 'bg-yellow-500/10 border-yellow-500/50 text-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.2)]' 
+                            : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10'
+                        }`}
+                    >
+                        <Star size={16} fill={showFavoritesOnly ? "currentColor" : "none"} />
+                    </button>
+                 </div>
 
-             <div className="flex items-center gap-2 overflow-x-auto pt-2 border-t border-white/5 mt-2 pb-3 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-white/20">
-                    <div className="flex items-center gap-1 text-gray-500 pl-2 border-l border-white/10 ml-1 shrink-0">
-                        <Clock size={14} />
-                        <span className="text-[10px]">التاريخ</span>
-                    </div>
-                    <TimeFilterButton type="ALL" label="كل الأوقات" />
-                    <TimeFilterButton type="TODAY" label="اليوم" />
-                    <TimeFilterButton type="WEEK" label="أسبوع" />
-                    <TimeFilterButton type="MONTH" label="شهر" />
-                    <TimeFilterButton type="YEAR" label="سنة" />
+                <div className="w-px h-6 bg-white/10 mx-1 shrink-0" />
+                
+                {/* Type Filters Group */}
+                <div className="flex items-center gap-2 shrink-0">
+                    <FilterButton type="ALL" label="الكل" icon={Filter} />
+                    <FilterButton type={MediaType.AUDIO} label="صوت" icon={Play} />
+                    <FilterButton type={MediaType.VIDEO} label="فيديو" icon={Video} />
+                    <FilterButton type={MediaType.IMAGE} label="صور" icon={Image} />
+                    <FilterButton type={MediaType.TEXT} label="نص" icon={FileText} />
+                </div>
+
+                <div className="w-px h-6 bg-white/10 mx-1 shrink-0" />
+
+                {/* Time Filter Icon Dropdown */}
+                <div 
+                    className="relative shrink-0"
+                    onMouseEnter={() => setShowTimeMenu(true)}
+                    onMouseLeave={() => setShowTimeMenu(false)}
+                >
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); setShowTimeMenu(!showTimeMenu); }}
+                        className={`flex items-center justify-center w-9 h-9 rounded-full transition-all duration-300 ${
+                            timeFilter !== 'ALL' 
+                            ? 'bg-secondary/20 border border-secondary text-secondary shadow-[0_0_10px_rgba(168,85,247,0.3)]' 
+                            : 'bg-white/5 border border-transparent text-gray-400 hover:bg-white/10 hover:text-white'
+                        }`}
+                        title="تصفية حسب الوقت"
+                    >
+                        <Clock size={16} />
+                    </button>
+
+                    {showTimeMenu && (
+                        <div className="absolute top-full left-0 mt-2 z-50 bg-card/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl p-1 min-w-[120px] animate-in fade-in zoom-in-95 duration-200 origin-top-left overflow-hidden">
+                            {[
+                                { type: 'ALL', label: 'كل الأوقات' },
+                                { type: 'TODAY', label: 'اليوم' },
+                                { type: 'WEEK', label: 'هذا الأسبوع' },
+                                { type: 'MONTH', label: 'هذا الشهر' },
+                                { type: 'YEAR', label: 'هذه السنة' }
+                            ].map((option) => (
+                                <button
+                                    key={option.type}
+                                    onClick={() => { setTimeFilter(option.type as any); setShowTimeMenu(false); }}
+                                    className={`w-full text-right px-3 py-2 text-xs font-medium rounded-lg transition-colors flex items-center justify-between ${
+                                        timeFilter === option.type 
+                                        ? 'bg-secondary/20 text-secondary' 
+                                        : 'text-gray-300 hover:bg-white/5'
+                                    }`}
+                                >
+                                    <span>{option.label}</span>
+                                    {timeFilter === option.type && <Check size={12} />}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
              </div>
           </div>
       </div>
