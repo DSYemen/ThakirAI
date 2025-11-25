@@ -121,12 +121,13 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
     if (isHighlighted) {
         containerClasses += "border-primary ring-2 ring-primary/50 bg-card/90 z-10";
     } else if (memory.isPinned) {
-        // Pinned Style: Distinct Cyan/Teal border with glow to separate from Favorites/Reminders
+        // Pinned Style: Distinct Cyan/Teal border with glow
         containerClasses += "border-cyan-500/60 bg-gradient-to-br from-card/90 via-card/80 to-cyan-500/10 shadow-[0_0_20px_-5px_rgba(6,182,212,0.25)] z-10 ring-1 ring-cyan-500/20";
     } else if (isExpanded) {
         containerClasses += "bg-card/90 border-primary/20 ring-1 ring-primary/20 z-10";
     } else if (memory.reminder) {
-        containerClasses += "border-secondary/60 shadow-[0_0_20px_-5px_rgba(168,85,247,0.3)] bg-gradient-to-br from-card/70 via-card/60 to-secondary/10";
+        // Reminder Style: Enhanced Purple border with stronger shadow and gradient
+        containerClasses += "border-secondary/80 shadow-[0_0_15px_-3px_rgba(168,85,247,0.4)] bg-gradient-to-br from-card/80 to-secondary/10 z-10";
     } else {
         containerClasses += "border-white/5 hover:border-white/10 bg-card/50";
     }
@@ -137,13 +138,11 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
             onClick={() => setIsExpanded(!isExpanded)}
             className={containerClasses}
         >
-            {/* Visual Indicator for Reminder */}
-            {memory.reminder && !memory.isPinned && (
-                <div className="absolute top-0 right-0 w-16 h-16 pointer-events-none overflow-hidden">
-                    <div className="absolute top-0 right-0 transform translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-secondary/20 blur-xl rounded-full"></div>
-                </div>
+            {/* Visual Indicator for Reminder - pulsing border overlay */}
+             {memory.reminder && !isHighlighted && !memory.isPinned && (
+                <div className="absolute inset-0 rounded-2xl border border-secondary/40 animate-[pulse_3s_infinite] pointer-events-none shadow-[inset_0_0_20px_rgba(168,85,247,0.1)]" />
             )}
-            
+
             {/* Visual Indicator for Pinned */}
             {memory.isPinned && (
                 <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-500/0 via-cyan-500/50 to-cyan-500/0"></div>
