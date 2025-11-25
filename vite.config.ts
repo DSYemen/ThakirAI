@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => {
       emptyOutDir: true,
     },
     define: {
-      'process.env.API_KEY': JSON.stringify(process.env.API_KEY || env.API_KEY || "")
+      'process.env.API_KEY': JSON.stringify((process as any).env.API_KEY || env.API_KEY || "")
     }
   };
 });

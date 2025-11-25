@@ -1,6 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Camera, Video, Mic, Type, Check, Loader2, Bell, X, Calendar, Sparkles, CalendarDays, AlertCircle, CameraOff, MicOff, RefreshCw } from 'lucide-react';
+import { Camera as CapacitorCamera } from '@capacitor/camera';
 import { analyzeMedia } from '../services/geminiService';
 import { saveMemory } from '../services/db';
 import { generateGoogleCalendarLink } from '../services/calendarService';
@@ -52,6 +53,16 @@ export const CaptureView: React.FC = () => {
   const startCamera = async () => {
     setDeviceError(null);
     
+    // Explicitly request native permissions for Capacitor (Android/iOS)
+    try {
+        const permissions = await CapacitorCamera.requestPermissions({ permissions: ['camera'] });
+        if (permissions.camera !== 'granted' && permissions.camera !== 'limited') {
+             console.warn("Native camera permission denied");
+        }
+    } catch (e) {
+        console.warn("Capacitor camera permission check failed (safe to ignore in web)", e);
+    }
+
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         setDeviceError({ type: 'CAMERA', message: "عذراً، متصفحك لا يدعم الوصول للكاميرا أو أن الاتصال غير آمن (HTTPS مطلوب)." });
         return;
