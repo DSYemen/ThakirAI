@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { Send, Sparkles, Bot, Search as SearchIcon, Calendar, ArrowUpRight, Play, Video, Image as ImageIcon, FileText, X, ChevronDown, ChevronUp, Clock, Trash2, History } from 'lucide-react';
+import { Send, Sparkles, Bot, Search as SearchIcon, Calendar, ArrowUpRight, Play, Video, Image as ImageIcon, FileText, X, ChevronDown, ChevronUp, Clock, Trash2, History, Mic, MicOff } from 'lucide-react';
 import { getMemories } from '../services/db';
 import { smartSearch } from '../services/geminiService';
 import { MediaType, SearchResult, MemoryItem } from '../types';
@@ -9,6 +10,7 @@ export const SearchView: React.FC = () => {
   const [response, setResponse] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
 
@@ -82,6 +84,43 @@ export const SearchView: React.FC = () => {
     } finally {
       setIsSearching(false);
     }
+  };
+
+  const handleVoiceSearch = () => {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        alert("متصفحك لا يدعم خاصية البحث الصوتي.");
+        return;
+    }
+    
+    // Use type assertion for SpeechRecognition to avoid TS errors
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'ar-SA';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+        setIsListening(true);
+    };
+
+    recognition.onend = () => {
+        setIsListening(false);
+    };
+
+    recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript) {
+            setQuery(transcript);
+            handleSearch(undefined, transcript);
+        }
+    };
+
+    recognition.onerror = (event: any) => {
+        console.error("Speech recognition error", event.error);
+        setIsListening(false);
+    };
+
+    recognition.start();
   };
 
   const clearSearch = () => {
@@ -274,6 +313,24 @@ export const SearchView: React.FC = () => {
                                     {isExpanded && (
                                         <div className="px-3 pb-3 pt-0 animate-in fade-in slide-in-from-top-1 duration-200">
                                             <div className="h-px bg-white/5 w-full mb-3" />
+                                            
+                                            {/* Media Viewer in Search */}
+                                            {(res.item.type === MediaType.IMAGE || res.item.type === MediaType.VIDEO || res.item.type === MediaType.AUDIO) && (
+                                                <div className="mb-3 rounded-lg overflow-hidden bg-black/30 border border-white/5">
+                                                    {res.item.type === MediaType.IMAGE && (
+                                                        <img src={res.item.content} className="w-full h-auto max-h-60 object-contain" alt="result" />
+                                                    )}
+                                                    {res.item.type === MediaType.VIDEO && (
+                                                        <video src={res.item.content} controls className="w-full max-h-60" />
+                                                    )}
+                                                    {res.item.type === MediaType.AUDIO && (
+                                                        <div className="p-3">
+                                                             <audio src={res.item.content} controls className="w-full h-8" />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
                                             <div className="bg-black/20 rounded-lg p-3 text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">
                                                 {res.item.transcription || res.item.content}
                                             </div>
@@ -298,12 +355,26 @@ export const SearchView: React.FC = () => {
       {/* Input Area */}
       <div className="fixed bottom-20 left-0 right-0 p-4 bg-gradient-to-t from-dark via-dark/95 to-transparent z-20">
           <form onSubmit={(e) => handleSearch(e)} className="relative max-w-md mx-auto shadow-2xl">
+            {/* Voice Input Button */}
+            <button
+                type="button"
+                onClick={handleVoiceSearch}
+                className={`absolute right-2 top-2 bottom-2 p-2 rounded-xl transition-all z-10 ${
+                    isListening 
+                    ? 'bg-red-500/20 text-red-400 animate-pulse ring-1 ring-red-500/50' 
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+                title="بحث صوتي"
+            >
+                {isListening ? <MicOff size={20} /> : <Mic size={20} />}
+            </button>
+
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="اكتب سؤالك هنا..."
-              className="w-full bg-card border border-white/10 rounded-2xl py-4 px-6 pl-20 text-right text-white focus:outline-none focus:bg-card/80 focus:border-primary/50 transition-all shadow-black/50 shadow-xl"
+              placeholder={isListening ? "جاري الاستماع..." : "اكتب سؤالك هنا..."}
+              className={`w-full bg-card border border-white/10 rounded-2xl py-4 px-6 pr-12 pl-20 text-right text-white focus:outline-none focus:bg-card/80 focus:border-primary/50 transition-all shadow-black/50 shadow-xl ${isListening ? 'ring-2 ring-red-500/20 border-red-500/30' : ''}`}
               disabled={isSearching}
             />
             

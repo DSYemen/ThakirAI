@@ -22,7 +22,8 @@ export interface MemoryItem {
   tags: string[];
   createdAt: number;
   isFavorite?: boolean;
-  reminder?: Reminder; // New property for reminders
+  isPinned?: boolean; // New property for pinning important memories
+  reminder?: Reminder;
   metadata?: {
     duration?: number;
     mimeType?: string;

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, Video, Mic, Type, Check, Loader2, Bell, X, Calendar, Sparkles, CalendarDays } from 'lucide-react';
+import { Camera, Video, Mic, Type, Check, Loader2, Bell, X, Calendar, Sparkles, CalendarDays, AlertCircle, CameraOff, MicOff, RefreshCw } from 'lucide-react';
 import { analyzeMedia } from '../services/geminiService';
 import { saveMemory } from '../services/db';
 import { generateGoogleCalendarLink } from '../services/calendarService';
@@ -15,11 +15,22 @@ export const CaptureView: React.FC = () => {
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [autoReminderDetected, setAutoReminderDetected] = useState<boolean>(false);
   
+  // Device Error State
+  const [deviceError, setDeviceError] = useState<{ type: 'CAMERA' | 'MIC', message: string } | null>(null);
+
   // Reminder State
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [reminderDate, setReminderDate] = useState("");
   const [reminderFreq, setReminderFreq] = useState<ReminderFrequency>('ONCE');
   const [activeReminder, setActiveReminder] = useState<Reminder | undefined>(undefined);
+
+  // Confirmation State
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingCapture, setPendingCapture] = useState<{
+    blob?: Blob;
+    type: MediaType;
+    mimeType?: string;
+  } | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -28,6 +39,7 @@ export const CaptureView: React.FC = () => {
 
   // Initialize Camera for Video/Image modes
   useEffect(() => {
+    setDeviceError(null); // Clear errors when switching modes
     if (mode === 'VIDEO' || mode === 'IMAGE') {
       startCamera();
     } else {
@@ -37,6 +49,7 @@ export const CaptureView: React.FC = () => {
   }, [mode]);
 
   const startCamera = async () => {
+    setDeviceError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { facingMode: 'environment' }, 
@@ -46,9 +59,17 @@ export const CaptureView: React.FC = () => {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("Camera Access Error", e);
-      alert("يرجى السماح بالوصول للكاميرا");
+      let msg = "حدث خطأ غير متوقع أثناء تشغيل الكاميرا.";
+      if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
+          msg = "يرجى السماح بالوصول للكاميرا من إعدادات المتصفح.";
+      } else if (e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError') {
+          msg = "لم يتم العثور على كاميرا في هذا الجهاز.";
+      } else if (e.name === 'NotReadableError' || e.name === 'TrackStartError') {
+          msg = "الكاميرا مستخدمة بالفعل من قبل تطبيق آخر.";
+      }
+      setDeviceError({ type: 'CAMERA', message: msg });
     }
   };
 
@@ -60,14 +81,22 @@ export const CaptureView: React.FC = () => {
   };
 
   const startRecording = async () => {
+    setDeviceError(null);
     chunksRef.current = [];
     
     let stream = previewStream;
     if (mode === 'AUDIO') {
         try {
             stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        } catch(e) {
-            alert("يرجى السماح بالوصول للميكروفون");
+        } catch(e: any) {
+            console.error("Mic Access Error", e);
+            let msg = "حدث خطأ أثناء تشغيل الميكروفون.";
+            if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
+                msg = "يرجى السماح بالوصول للميكروفون من إعدادات المتصفح.";
+            } else if (e.name === 'NotFoundError') {
+                msg = "لم يتم العثور على ميكروفون.";
+            }
+            setDeviceError({ type: 'MIC', message: msg });
             return;
         }
     }
@@ -75,18 +104,24 @@ export const CaptureView: React.FC = () => {
     if (!stream) return;
 
     const mimeType = mode === 'VIDEO' ? 'video/webm;codecs=vp8,opus' : 'audio/webm';
+    // Fallback for Safari/iOS which prefers mp4/aac or standard webm without codec specs
     const options = MediaRecorder.isTypeSupported(mimeType) ? { mimeType } : undefined;
 
-    const recorder = new MediaRecorder(stream, options);
-    mediaRecorderRef.current = recorder;
+    try {
+        const recorder = new MediaRecorder(stream, options);
+        mediaRecorderRef.current = recorder;
 
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunksRef.current.push(e.data);
-    };
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) chunksRef.current.push(e.data);
+        };
 
-    recorder.onstop = handleRecordingStop;
-    recorder.start();
-    setIsRecording(true);
+        recorder.onstop = handleRecordingStop;
+        recorder.start();
+        setIsRecording(true);
+    } catch (err) {
+        console.error("MediaRecorder Error", err);
+        setDeviceError({ type: mode === 'AUDIO' ? 'MIC' : 'CAMERA', message: "المتصفح لا يدعم التسجيل بهذه الصيغة." });
+    }
   };
 
   const stopRecording = () => {
@@ -111,7 +146,8 @@ export const CaptureView: React.FC = () => {
     
     canvasRef.current.toBlob(async (blob) => {
         if (blob) {
-             processAndSave(blob, MediaType.IMAGE, 'image/jpeg');
+             setPendingCapture({ blob, type: MediaType.IMAGE, mimeType: 'image/jpeg' });
+             setShowConfirmModal(true);
         }
     }, 'image/jpeg', 0.8);
   };
@@ -119,7 +155,8 @@ export const CaptureView: React.FC = () => {
   const handleRecordingStop = () => {
       const type = mode === 'VIDEO' ? 'video/webm' : 'audio/webm';
       const blob = new Blob(chunksRef.current, { type });
-      processAndSave(blob, mode === 'VIDEO' ? MediaType.VIDEO : MediaType.AUDIO, type);
+      setPendingCapture({ blob, type: mode === 'VIDEO' ? MediaType.VIDEO : MediaType.AUDIO, mimeType: type });
+      setShowConfirmModal(true);
   };
 
   const blobToBase64 = (blob: Blob): Promise<string> => {
@@ -131,7 +168,7 @@ export const CaptureView: React.FC = () => {
     });
   };
 
-  const processAndSave = async (blob: Blob, type: MediaType, mimeType: string) => {
+  const executeProcessAndSave = async (blob: Blob, type: MediaType, mimeType: string) => {
       setStatus("processing");
       try {
         const base64 = await blobToBase64(blob);
@@ -167,7 +204,13 @@ export const CaptureView: React.FC = () => {
       }
   };
 
-  const handleTextSubmit = async () => {
+  const openTextConfirmation = () => {
+    if (!inputText.trim()) return;
+    setPendingCapture({ type: MediaType.TEXT });
+    setShowConfirmModal(true);
+  };
+
+  const executeTextSave = async () => {
     if (!inputText.trim()) return;
     setStatus("processing");
     const analysis = await analyzeMedia(MediaType.TEXT, "", inputText);
@@ -197,6 +240,22 @@ export const CaptureView: React.FC = () => {
     resetForm();
   };
 
+  const confirmSave = async () => {
+      setShowConfirmModal(false);
+      
+      if (pendingCapture?.type === MediaType.TEXT) {
+          await executeTextSave();
+      } else if (pendingCapture?.blob && pendingCapture?.mimeType) {
+          await executeProcessAndSave(pendingCapture.blob, pendingCapture.type, pendingCapture.mimeType);
+      }
+      setPendingCapture(null);
+  };
+
+  const cancelSave = () => {
+      setShowConfirmModal(false);
+      setPendingCapture(null);
+  };
+
   const resetForm = () => {
       setStatus("saved");
       setInputText("");
@@ -221,18 +280,37 @@ export const CaptureView: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-dark relative overflow-hidden">
-        {/* Camera Preview Layer */}
+        {/* Camera Preview Layer (OR Error Layer) */}
         {(mode === 'VIDEO' || mode === 'IMAGE') && (
-             <div className="absolute inset-0 z-0">
-                 <video 
-                    ref={videoRef} 
-                    autoPlay 
-                    playsInline 
-                    muted 
-                    className="w-full h-full object-cover opacity-90"
-                 />
-                 <canvas ref={canvasRef} className="hidden" />
-                 <div className="absolute inset-0 bg-gradient-to-b from-dark/60 via-transparent to-dark/90 pointer-events-none" />
+             <div className="absolute inset-0 z-0 bg-black">
+                 {deviceError?.type === 'CAMERA' ? (
+                     <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10">
+                         <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-4 border border-red-500/20">
+                             <CameraOff size={32} className="text-red-400" />
+                         </div>
+                         <h3 className="text-lg font-bold text-white mb-2">تعذر الوصول للكاميرا</h3>
+                         <p className="text-gray-400 text-sm mb-6 leading-relaxed max-w-xs">{deviceError.message}</p>
+                         <button 
+                            onClick={startCamera}
+                            className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg text-sm transition-colors"
+                         >
+                             <RefreshCw size={14} />
+                             إعادة المحاولة
+                         </button>
+                     </div>
+                 ) : (
+                    <>
+                        <video 
+                            ref={videoRef} 
+                            autoPlay 
+                            playsInline 
+                            muted 
+                            className="w-full h-full object-cover opacity-90"
+                        />
+                        <canvas ref={canvasRef} className="hidden" />
+                        <div className="absolute inset-0 bg-gradient-to-b from-dark/60 via-transparent to-dark/90 pointer-events-none" />
+                    </>
+                 )}
              </div>
         )}
 
@@ -257,9 +335,9 @@ export const CaptureView: React.FC = () => {
                          <span>تم الحفظ</span>
                      </div>
                      {autoReminderDetected && (
-                         <div className="bg-secondary/20 backdrop-blur px-3 py-1 rounded-full flex items-center gap-2 text-xs text-secondary border border-secondary/30 animate-in slide-in-from-top-2">
-                             <Sparkles size={12} />
-                             <span>تم جدولة تذكير تلقائياً</span>
+                         <div className="bg-secondary/20 backdrop-blur px-3 py-1 rounded-full flex items-center gap-2 text-xs text-secondary border border-secondary/30 animate-in slide-in-from-top-2 shadow-[0_0_10px_rgba(168,85,247,0.3)]">
+                             <Bell size={12} className="animate-pulse" fill="currentColor" />
+                             <span>تم ضبط التذكير</span>
                          </div>
                      )}
                  </div>
@@ -271,11 +349,30 @@ export const CaptureView: React.FC = () => {
             
             {mode === 'AUDIO' && (
                 <div className={`transition-all duration-500 ${isRecording ? 'scale-110' : 'scale-100'}`}>
-                    <div className="w-48 h-48 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border-4 border-white/5 relative">
-                         {isRecording && <div className="absolute inset-0 rounded-full animate-ping bg-primary/20"></div>}
-                         <Mic size={64} className="text-white/80" />
-                    </div>
-                    {isRecording && <p className="text-center mt-8 text-primary font-mono animate-pulse">00:00:00</p>}
+                    {deviceError?.type === 'MIC' ? (
+                        <div className="flex flex-col items-center justify-center p-6 text-center">
+                            <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-4 border border-red-500/20">
+                                <MicOff size={32} className="text-red-400" />
+                            </div>
+                            <h3 className="text-lg font-bold text-white mb-2">تعذر الوصول للميكروفون</h3>
+                            <p className="text-gray-400 text-sm mb-6 leading-relaxed max-w-xs">{deviceError.message}</p>
+                            <button 
+                                onClick={startRecording}
+                                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg text-sm transition-colors"
+                            >
+                                <RefreshCw size={14} />
+                                إعادة المحاولة
+                            </button>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="w-48 h-48 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border-4 border-white/5 relative">
+                                {isRecording && <div className="absolute inset-0 rounded-full animate-ping bg-primary/20"></div>}
+                                <Mic size={64} className="text-white/80" />
+                            </div>
+                            {isRecording && <p className="text-center mt-8 text-primary font-mono animate-pulse">00:00:00</p>}
+                        </>
+                    )}
                 </div>
             )}
 
@@ -318,7 +415,7 @@ export const CaptureView: React.FC = () => {
                 
                 {mode === 'TEXT' ? (
                      <button 
-                        onClick={handleTextSubmit}
+                        onClick={openTextConfirmation}
                         disabled={!inputText.trim()}
                         className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-4 rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
                      >
@@ -328,11 +425,14 @@ export const CaptureView: React.FC = () => {
                     <div className="flex items-center gap-4 w-full justify-center">
                         <button
                             onClick={() => {
+                                if (deviceError) return; // Disable main button if error
                                 if (mode === 'IMAGE') captureImage();
                                 else if (isRecording) stopRecording();
                                 else startRecording();
                             }}
+                            disabled={!!deviceError}
                             className={`w-20 h-20 rounded-full flex items-center justify-center border-4 border-white transition-all duration-300 shadow-2xl ${
+                                !!deviceError ? 'bg-gray-500 opacity-50 cursor-not-allowed' :
                                 isRecording 
                                 ? 'bg-red-500 scale-110' 
                                 : mode === 'IMAGE' 
@@ -356,9 +456,10 @@ export const CaptureView: React.FC = () => {
                      {/* Reminder Button */}
                      <button 
                         onClick={() => setShowReminderModal(true)}
-                        className={`p-3 rounded-full border transition-colors ${activeReminder ? 'bg-primary border-primary text-white' : 'bg-white/5 border-white/10 text-gray-400'}`}
+                         className={`relative p-3 rounded-full border transition-all duration-300 ${activeReminder ? 'bg-secondary border-secondary text-white shadow-[0_0_15px_rgba(168,85,247,0.5)]' : 'bg-white/5 border-white/10 text-gray-400'}`}
                      >
-                         <Bell size={20} fill={activeReminder ? "currentColor" : "none"} />
+                         <Bell size={20} fill={activeReminder ? "currentColor" : "none"} className={activeReminder ? "animate-pulse" : ""} />
+                         {activeReminder && <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-dark"></span>}
                      </button>
 
                     {/* Context Input */}
@@ -448,6 +549,67 @@ export const CaptureView: React.FC = () => {
                                  </button>
                              </div>
                          )}
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* Confirmation Modal */}
+        {showConfirmModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                <div className="bg-card w-full max-w-sm rounded-2xl border border-white/10 shadow-2xl overflow-hidden p-6 text-center space-y-6">
+                    <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mx-auto text-primary">
+                        {pendingCapture?.type === MediaType.TEXT ? <Type size={32}/> : 
+                         pendingCapture?.type === MediaType.IMAGE ? <Camera size={32}/> :
+                         pendingCapture?.type === MediaType.VIDEO ? <Video size={32}/> : <Mic size={32}/>}
+                    </div>
+                    
+                    <div className="space-y-2">
+                        <h3 className="text-xl font-bold text-white">تأكيد الحفظ</h3>
+                        <p className="text-gray-400 text-sm">
+                            {pendingCapture?.type === MediaType.TEXT 
+                                ? 'هل تريد حفظ هذه الملاحظة؟' 
+                                : 'هل تريد حفظ هذا المحتوى وتحليله؟'}
+                        </p>
+                    </div>
+
+                    {/* Preview for Image */}
+                    {pendingCapture?.type === MediaType.IMAGE && pendingCapture.blob && (
+                         <div className="rounded-xl overflow-hidden border border-white/10 max-h-48 bg-black/20">
+                             <img src={URL.createObjectURL(pendingCapture.blob)} className="w-full h-full object-contain" alt="Preview" />
+                         </div>
+                    )}
+
+                    {/* Preview for Text */}
+                    {pendingCapture?.type === MediaType.TEXT && (
+                        <div className="bg-white/5 rounded-xl p-3 text-right text-xs text-gray-300 max-h-32 overflow-y-auto leading-relaxed border border-white/5">
+                            {inputText}
+                        </div>
+                    )}
+
+                    {/* Warning if Audio/Video */}
+                    {(pendingCapture?.type === MediaType.AUDIO || pendingCapture?.type === MediaType.VIDEO) && (
+                        <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 flex items-start gap-2 text-left">
+                            <AlertCircle size={16} className="text-yellow-500 shrink-0 mt-0.5" />
+                            <span className="text-[10px] text-yellow-200/80 leading-tight">
+                                سيتم إرسال هذا التسجيل إلى الذكاء الاصطناعي لاستخراج النص والبيانات.
+                            </span>
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <button 
+                            onClick={cancelSave}
+                            className="py-3 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 font-medium transition-colors"
+                        >
+                            إلغاء
+                        </button>
+                        <button 
+                            onClick={confirmSave}
+                            className="py-3 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold transition-colors shadow-lg shadow-primary/20"
+                        >
+                            حفظ ومتابعة
+                        </button>
                     </div>
                 </div>
             </div>

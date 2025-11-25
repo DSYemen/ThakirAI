@@ -1,8 +1,9 @@
+
 import { MemoryItem, MediaType } from '../types';
 
 const DB_NAME = 'ThakiraDB';
 const STORE_NAME = 'memories';
-const VERSION = 2; // Upgraded to add new indexes
+const VERSION = 3; // Upgraded to add isPinned index
 
 const openDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -24,6 +25,11 @@ const openDB = (): Promise<IDBDatabase> => {
       // Add isFavorite index in version 2
       if (!store.indexNames.contains('isFavorite')) {
         store.createIndex('isFavorite', 'isFavorite', { unique: false });
+      }
+
+      // Add isPinned index in version 3
+      if (!store.indexNames.contains('isPinned')) {
+        store.createIndex('isPinned', 'isPinned', { unique: false });
       }
     };
 
@@ -82,8 +88,9 @@ export interface FilterOptions {
   type: MediaType | 'ALL';
   timeFilter: 'ALL' | 'TODAY' | 'WEEK' | 'MONTH' | 'YEAR';
   showFavoritesOnly: boolean;
+  showPinnedOnly: boolean; // Added pinned filter
   searchQuery: string;
-  sortBy: 'DATE' | 'FAVORITES';
+  sortBy: 'DATE' | 'FAVORITES' | 'PINNED'; // Added sort by pinned
 }
 
 export interface PagedResult {
@@ -105,6 +112,8 @@ export const getPagedMemories = async (
     let indexName = 'createdAt';
     if (filters.sortBy === 'FAVORITES') {
         indexName = 'isFavorite';
+    } else if (filters.sortBy === 'PINNED') {
+        indexName = 'isPinned';
     }
     
     const index = store.index(indexName);
@@ -113,24 +122,16 @@ export const getPagedMemories = async (
     // Handle Cursor Range
     let range: IDBKeyRange | null = null;
     if (startCursor) {
-      // If we have a cursor, we want items AFTER this cursor value.
-      // Since direction is 'prev' (descending), "after" means "less than".
-      // However, IDB openCursor with starting key is tricky with duplicates.
-      // We essentially just open the cursor and advance/continue until we find the spot.
-      // A better way for simple pagination is using range upperBound.
       range = IDBKeyRange.upperBound(startCursor.value, true); 
-      // Note: This logic works well for createdAt (unique-ish). 
-      // For isFavorite (lots of duplicates), upperBound might skip legitimate items with same value but diff ID.
-      // So for isFavorite, we might rely on filtering manually or standard iteration.
-      if (filters.sortBy === 'FAVORITES') {
-          range = null; // We'll handle skipping manually for simplicity in this robust implementation
+      if (filters.sortBy === 'FAVORITES' || filters.sortBy === 'PINNED') {
+          range = null; // Manual skipping for boolean indexes
       }
     }
 
     const request = index.openCursor(range, direction);
     
     const items: MemoryItem[] = [];
-    let hasSkippedToCursor = !startCursor || filters.sortBy !== 'FAVORITES'; // If by date, range handles it. If favorite, we skip manually.
+    let hasSkippedToCursor = !startCursor || (filters.sortBy !== 'FAVORITES' && filters.sortBy !== 'PINNED');
 
     request.onsuccess = (event) => {
       const cursor = (event.target as IDBRequest).result;
@@ -140,7 +141,6 @@ export const getPagedMemories = async (
         return;
       }
 
-      // If sorting by Favorites (duplicates), we need to manually skip until we pass the last loaded ID
       if (!hasSkippedToCursor && startCursor) {
           if (cursor.value.id === startCursor.id) {
               hasSkippedToCursor = true;
@@ -157,10 +157,13 @@ export const getPagedMemories = async (
       // 1. Filter Type
       if (filters.type !== 'ALL' && memory.type !== filters.type) matches = false;
 
-      // 2. Favorites Filter (if not already sorted by it)
+      // 2. Favorites Filter
       if (matches && filters.showFavoritesOnly && !memory.isFavorite) matches = false;
 
-      // 3. Time Filter
+      // 3. Pinned Filter
+      if (matches && filters.showPinnedOnly && !memory.isPinned) matches = false;
+
+      // 4. Time Filter
       if (matches && filters.timeFilter !== 'ALL') {
           const date = new Date(memory.createdAt);
           const now = new Date();
@@ -174,7 +177,7 @@ export const getPagedMemories = async (
           else if (filters.timeFilter === 'YEAR' && diffDays > 365) matches = false;
       }
 
-      // 4. Search Query (Simple client-side match in DB loop)
+      // 5. Search Query
       if (matches && filters.searchQuery) {
           const q = filters.searchQuery.toLowerCase();
           const text = (memory.transcription || memory.content || '').toLowerCase();
@@ -193,7 +196,6 @@ export const getPagedMemories = async (
       if (items.length < limit) {
           cursor.continue();
       } else {
-          // Found enough items for this page
           const nextVal = cursor.key;
           const nextId = memory.id;
           resolve({ 

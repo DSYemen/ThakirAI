@@ -1,8 +1,9 @@
+
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { getPagedMemories, deleteMemory, saveMemory, FilterOptions, getMemories, getMemoryById } from '../services/db';
 import { MemoryItem, MediaType, ReminderFrequency, Reminder } from '../types';
 import { generateGoogleCalendarLink } from '../services/calendarService';
-import { Play, FileText, Image, Trash2, Video, Pause, Search, Filter, MoreVertical, FileJson, FileSpreadsheet, X, Clock, ChevronLeft, Star, Bell, Calendar, ChevronDown, ChevronUp, ArrowUpDown, Loader2, CalendarDays } from 'lucide-react';
+import { Play, FileText, Image, Trash2, Video, Pause, Search, Filter, MoreVertical, FileJson, FileSpreadsheet, X, Clock, ChevronLeft, Star, Bell, Calendar, ChevronDown, ChevronUp, ArrowUpDown, Loader2, CalendarDays, Pin, PinOff } from 'lucide-react';
 
 interface DisplayMemory extends MemoryItem {
     matchScore?: number;
@@ -14,6 +15,7 @@ interface MemoryCardProps {
     isPlaying: boolean;
     onTogglePlay: (id: string) => void;
     onToggleFavorite: (e: React.MouseEvent, id: string) => void;
+    onTogglePin: (e: React.MouseEvent, id: string) => void;
     onDelete: (id: string) => void;
     onSetReminder: (e: React.MouseEvent, memory: MemoryItem) => void;
     isHighlighted?: boolean;
@@ -39,16 +41,59 @@ const formatRelativeTime = (timestamp: number) => {
     return date.toLocaleDateString('ar-SA', { weekday: 'long', day: 'numeric', month: 'short' });
 };
 
+const formatDuration = (seconds: number) => {
+    if (!seconds || isNaN(seconds)) return "00:00";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
 const MemoryCard: React.FC<MemoryCardProps> = ({ 
-    id, memory, isPlaying, onTogglePlay, onToggleFavorite, onDelete, onSetReminder, isHighlighted
+    id, memory, isPlaying, onTogglePlay, onToggleFavorite, onTogglePin, onDelete, onSetReminder, isHighlighted
 }) => {
     const [isExpanded, setIsExpanded] = useState(false);
+    
+    // Audio State
+    const audioRef = useRef<HTMLAudioElement>(null);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [duration, setDuration] = useState(0);
 
     useEffect(() => {
         if (isHighlighted) {
             setIsExpanded(true);
         }
     }, [isHighlighted]);
+
+    // Handle Audio Playback based on Prop
+    useEffect(() => {
+        if (memory.type !== MediaType.AUDIO || !audioRef.current) return;
+
+        if (isPlaying) {
+            audioRef.current.play().catch(e => console.error("Playback error:", e));
+        } else {
+            audioRef.current.pause();
+        }
+    }, [isPlaying, memory.type]);
+
+    const handleTimeUpdate = () => {
+        if (audioRef.current) {
+            setCurrentTime(audioRef.current.currentTime);
+        }
+    };
+
+    const handleLoadedMetadata = () => {
+        if (audioRef.current) {
+            setDuration(audioRef.current.duration);
+        }
+    };
+
+    const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const time = parseFloat(e.target.value);
+        if (audioRef.current) {
+            audioRef.current.currentTime = time;
+            setCurrentTime(time);
+        }
+    };
 
     const getIcon = () => {
         switch(memory.type) {
@@ -70,14 +115,42 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
 
     const styles = getTypeStyles();
 
+    // Determine Container Styles based on State
+    let containerClasses = "group backdrop-blur border rounded-2xl overflow-hidden transition-all duration-300 shadow-md hover:shadow-lg relative ";
+    
+    if (isHighlighted) {
+        containerClasses += "border-primary ring-2 ring-primary/50 bg-card/90 z-10";
+    } else if (memory.isPinned) {
+        // Pinned Style: Distinct Cyan/Teal border with glow to separate from Favorites/Reminders
+        containerClasses += "border-cyan-500/60 bg-gradient-to-br from-card/90 via-card/80 to-cyan-500/10 shadow-[0_0_20px_-5px_rgba(6,182,212,0.25)] z-10 ring-1 ring-cyan-500/20";
+    } else if (isExpanded) {
+        containerClasses += "bg-card/90 border-primary/20 ring-1 ring-primary/20 z-10";
+    } else if (memory.reminder) {
+        containerClasses += "border-secondary/60 shadow-[0_0_20px_-5px_rgba(168,85,247,0.3)] bg-gradient-to-br from-card/70 via-card/60 to-secondary/10";
+    } else {
+        containerClasses += "border-white/5 hover:border-white/10 bg-card/50";
+    }
+
     return (
         <div 
             id={id}
             onClick={() => setIsExpanded(!isExpanded)}
-            className={`group bg-card/50 backdrop-blur border rounded-2xl overflow-hidden transition-all duration-300 shadow-md hover:shadow-lg ${isExpanded ? 'bg-card/80' : ''} ${isHighlighted ? 'border-primary ring-2 ring-primary/50' : 'border-white/5 hover:border-white/10'}`}
+            className={containerClasses}
         >
+            {/* Visual Indicator for Reminder */}
+            {memory.reminder && !memory.isPinned && (
+                <div className="absolute top-0 right-0 w-16 h-16 pointer-events-none overflow-hidden">
+                    <div className="absolute top-0 right-0 transform translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-secondary/20 blur-xl rounded-full"></div>
+                </div>
+            )}
+            
+            {/* Visual Indicator for Pinned */}
+            {memory.isPinned && (
+                <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-500/0 via-cyan-500/50 to-cyan-500/0"></div>
+            )}
+
             {/* Header Section */}
-            <div className="p-4 pb-2 flex justify-between items-start">
+            <div className="p-4 pb-2 flex justify-between items-start relative z-10">
                  <div className="flex items-center gap-3">
                      <div className={`w-10 h-10 rounded-xl border ${styles.border} ${styles.bg} ${styles.text} flex items-center justify-center shrink-0`}>
                          {getIcon()}
@@ -88,8 +161,9 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
                                 {memory.type === MediaType.AUDIO ? 'تسجيل صوتي' : memory.type === MediaType.VIDEO ? 'فيديو' : memory.type === MediaType.IMAGE ? 'صورة' : 'نص'}
                             </span>
                              {memory.reminder && (
-                                <div className="flex items-center gap-1 bg-secondary/20 text-secondary text-[9px] px-1.5 py-0.5 rounded-md animate-pulse">
-                                    <Bell size={9} fill="currentColor" />
+                                <div className="flex items-center gap-1.5 bg-secondary/20 text-secondary border border-secondary/30 text-[10px] px-2 py-0.5 rounded-full animate-pulse shadow-[0_0_8px_rgba(168,85,247,0.3)]">
+                                    <Bell size={10} fill="currentColor" />
+                                    <span className="font-bold font-mono tracking-tight">{new Date(memory.reminder.timestamp).toLocaleTimeString('ar-SA', {hour: '2-digit', minute:'2-digit'})}</span>
                                 </div>
                             )}
                          </div>
@@ -100,18 +174,22 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
                      </div>
                  </div>
 
-                 {/* Match Score Badge (Search Mode) */}
-                 {memory.matchScore !== undefined && (
+                 {/* Match Score Badge (Search Mode) or Pin Icon */}
+                 {memory.matchScore !== undefined ? (
                     <div className="bg-green-500/10 text-green-400 border border-green-500/20 text-[10px] font-bold px-2 py-1 rounded-full flex items-center gap-1">
                         <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></div>
                         {memory.matchScore}%
                     </div>
-                 )}
+                 ) : memory.isPinned ? (
+                     <div className="text-cyan-400 bg-cyan-400/10 p-1.5 rounded-full border border-cyan-400/20">
+                         <Pin size={12} fill="currentColor" />
+                     </div>
+                 ) : null}
             </div>
 
-            {/* Summary Section */}
-            <div className="px-4 py-1">
-                <h3 className={`font-bold text-gray-200 leading-relaxed transition-all ${isExpanded ? 'text-lg mb-2' : 'text-sm line-clamp-1'}`}>
+            {/* Summary Section (Card Body) */}
+            <div className="px-4 py-1 relative z-10">
+                <h3 className={`font-bold text-gray-200 leading-relaxed transition-all duration-300 ${isExpanded ? 'text-lg mb-2' : 'text-sm line-clamp-1'}`}>
                     {memory.summary || "بدون عنوان"}
                 </h3>
                 
@@ -125,7 +203,7 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
 
             {/* Expanded Content Area */}
             {isExpanded && (
-                <div className="px-4 py-2 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="px-4 py-2 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300 relative z-10">
                     
                     {/* Media Viewer */}
                     <div className="rounded-xl overflow-hidden bg-black/30 border border-white/5">
@@ -136,22 +214,44 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
                             <video src={memory.content} controls className="w-full max-h-[400px]" />
                         )}
                         {memory.type === MediaType.AUDIO && (
-                            <div className="p-4 flex items-center gap-4">
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); onTogglePlay(memory.id); }}
-                                    className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-white shadow-lg shadow-primary/20 hover:scale-105 transition-transform shrink-0"
-                                >
-                                    {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ml-0.5" />}
-                                </button>
-                                <div className="flex-1 space-y-2">
-                                    <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                                        <div className={`h-full bg-primary/70 rounded-full transition-all duration-500 ${isPlaying ? 'w-full opacity-100' : 'w-0 opacity-50'}`}></div>
-                                    </div>
-                                    <div className="flex justify-between text-[10px] text-gray-500">
-                                        <span>{isPlaying ? 'جاري التشغيل...' : 'اضغط للاستماع'}</span>
-                                        <span className="font-mono">AUDIO</span>
+                            <div className="p-4 flex flex-col gap-3">
+                                <div className="flex items-center gap-4">
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); onTogglePlay(memory.id); }}
+                                        className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-white shadow-lg shadow-primary/20 hover:scale-105 transition-transform shrink-0"
+                                    >
+                                        {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ml-0.5" />}
+                                    </button>
+                                    
+                                    <div className="flex-1 flex flex-col justify-center">
+                                        {/* Seek Bar */}
+                                        <input
+                                            type="range"
+                                            min={0}
+                                            max={duration || 100}
+                                            value={currentTime}
+                                            onChange={handleSeek}
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-primary hover:accent-primary/80"
+                                        />
+                                        <div className="flex justify-between text-[10px] text-gray-400 mt-1 font-mono">
+                                            <span>{formatDuration(currentTime)}</span>
+                                            <span>{formatDuration(duration)}</span>
+                                        </div>
                                     </div>
                                 </div>
+                                
+                                {/* Hidden Audio Element */}
+                                <audio 
+                                    ref={audioRef}
+                                    src={memory.content} 
+                                    onTimeUpdate={handleTimeUpdate}
+                                    onLoadedMetadata={handleLoadedMetadata}
+                                    onEnded={() => {
+                                        onTogglePlay(memory.id); 
+                                    }} 
+                                    className="hidden" 
+                                />
                             </div>
                         )}
                     </div>
@@ -184,8 +284,8 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
             )}
 
             {/* Footer: Tags & Actions */}
-            <div className="px-4 py-3 mt-2 border-t border-white/5 flex flex-col gap-3">
-                {/* Tags */}
+            <div className="px-4 py-3 mt-2 border-t border-white/5 flex flex-col gap-3 relative z-10">
+                {/* Relevant Tags */}
                 {memory.tags && memory.tags.length > 0 && (
                      <div className="flex flex-wrap gap-2">
                         {memory.tags.map((tag, idx) => (
@@ -214,6 +314,13 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
                             <Star size={18} fill={memory.isFavorite ? "currentColor" : "none"} />
                         </button>
                         <button 
+                            onClick={(e) => onTogglePin(e, memory.id)}
+                            className={`p-2 rounded-full transition-all ${memory.isPinned ? 'text-cyan-400 bg-cyan-400/10 shadow-[0_0_10px_rgba(34,211,238,0.3)]' : 'text-gray-500 hover:text-cyan-400 hover:bg-white/5'}`}
+                            title={memory.isPinned ? "إلغاء التثبيت" : "تثبيت"}
+                        >
+                            {memory.isPinned ? <PinOff size={18} /> : <Pin size={18} />}
+                        </button>
+                        <button 
                             onClick={(e) => { e.stopPropagation(); onDelete(memory.id); }}
                             className="p-2 rounded-full text-gray-500 hover:text-red-400 hover:bg-red-400/10 transition-colors"
                             title="حذف"
@@ -238,11 +345,9 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
                 </div>
             </div>
             
-            {/* Hidden Audio Player Logic */}
-            {memory.type === MediaType.AUDIO && (
-                <audio id={`audio-${memory.id}`} src={memory.content} onEnded={() => {
-                    onTogglePlay(memory.id); 
-                }} className="hidden" />
+            {/* Hidden Audio Player Logic (Fallback/Init) */}
+             {memory.type === MediaType.AUDIO && (
+                <audio id={`audio-${memory.id}`} src={memory.content} className="hidden" />
             )}
         </div>
     );
@@ -265,7 +370,8 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
   const [filterType, setFilterType] = useState<MediaType | 'ALL'>('ALL');
   const [timeFilter, setTimeFilter] = useState<'ALL' | 'TODAY' | 'WEEK' | 'MONTH' | 'YEAR'>('ALL');
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
-  const [sortBy, setSortBy] = useState<'DATE' | 'FAVORITES'>('DATE');
+  const [showPinnedOnly, setShowPinnedOnly] = useState(false);
+  const [sortBy, setSortBy] = useState<'DATE' | 'FAVORITES' | 'PINNED'>('DATE');
   const [searchQuery, setSearchQuery] = useState("");
   
   // UI State
@@ -317,7 +423,7 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
       setCursor(null);
       setHasMore(true);
       loadMemories(true);
-  }, [filterType, timeFilter, showFavoritesOnly, sortBy, searchQuery]);
+  }, [filterType, timeFilter, showFavoritesOnly, showPinnedOnly, sortBy, searchQuery]);
 
   // Infinite Scroll Observer
   useEffect(() => {
@@ -348,6 +454,7 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
             type: filterType,
             timeFilter,
             showFavoritesOnly,
+            showPinnedOnly,
             searchQuery,
             sortBy
         };
@@ -406,6 +513,16 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
       if (!memory) return;
 
       const updatedMemory = { ...memory, isFavorite: !memory.isFavorite };
+      setMemories(prev => prev.map(m => m.id === id ? updatedMemory : m));
+      await saveMemory(updatedMemory);
+  };
+
+  const handleTogglePin = async (e: React.MouseEvent, id: string) => {
+      e.stopPropagation();
+      const memory = memories.find(m => m.id === id);
+      if (!memory) return;
+
+      const updatedMemory = { ...memory, isPinned: !memory.isPinned };
       setMemories(prev => prev.map(m => m.id === id ? updatedMemory : m));
       await saveMemory(updatedMemory);
   };
@@ -485,14 +602,15 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
   const exportCSV = async () => {
     const allMemories = await getMemories(); // Export needs ALL items
     let csvContent = "\uFEFF"; 
-    csvContent += "ID,Date,Type,IsFavorite,Summary,Tags,Transcription\n";
+    csvContent += "ID,Date,Type,IsFavorite,IsPinned,Summary,Tags,Transcription\n";
     allMemories.forEach(m => {
         const date = new Date(m.createdAt).toLocaleDateString('ar-SA');
         const tags = m.tags ? m.tags.join(";") : "";
         const cleanSummary = (m.summary || "").replace(/,/g, "،").replace(/\n/g, " ");
         const cleanTrans = (m.transcription || "").replace(/,/g, "،").replace(/\n/g, " ");
         const fav = m.isFavorite ? "Yes" : "No";
-        csvContent += `"${m.id}","${date}","${m.type}","${fav}","${cleanSummary}","${tags}","${cleanTrans}"\n`;
+        const pin = m.isPinned ? "Yes" : "No";
+        csvContent += `"${m.id}","${date}","${m.type}","${fav}","${pin}","${cleanSummary}","${tags}","${cleanTrans}"\n`;
     });
     downloadFile(csvContent, `thakira_report_${Date.now()}.csv`, 'text/csv');
   };
@@ -592,6 +710,14 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
                       {sortBy === 'FAVORITES' && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
                   </button>
 
+                  <button onClick={() => setSortBy('PINNED')} className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-colors ${sortBy === 'PINNED' ? 'bg-primary/20 text-primary' : 'text-gray-200 hover:bg-white/5'}`}>
+                      <div className="flex items-center gap-3">
+                        <Pin size={16} />
+                        <span>المثبتة أولاً</span>
+                      </div>
+                      {sortBy === 'PINNED' && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                  </button>
+
                   <div className="h-px bg-white/10 my-2" />
                   <div className="text-xs text-gray-500 font-bold px-3 py-2">تصدير</div>
                   <button onClick={exportJSON} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 rounded-lg text-sm text-gray-200 text-right transition-colors">
@@ -606,7 +732,20 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
           )}
 
           <div className={`transition-all duration-300 overflow-hidden ${isSearchOpen ? 'h-0 opacity-0' : 'h-auto opacity-100'}`}>
-             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+             <div className="flex gap-2 overflow-x-auto pb-3 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-white/20">
+                 {/* Pinned Filter */}
+                 <button 
+                    onClick={() => setShowPinnedOnly(!showPinnedOnly)}
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium transition-all whitespace-nowrap border ${
+                        showPinnedOnly 
+                        ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.2)]' 
+                        : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10'
+                    }`}
+                >
+                    <Pin size={14} fill={showPinnedOnly ? "currentColor" : "none"} />
+                    المثبتة
+                </button>
+
                 <button 
                     onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
                     className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium transition-all whitespace-nowrap border ${
@@ -616,9 +755,9 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
                     }`}
                 >
                     <Star size={14} fill={showFavoritesOnly ? "currentColor" : "none"} />
-                    المفضلة فقط
+                    المفضلة
                 </button>
-                <div className="w-px h-6 bg-white/10 mx-1 self-center" />
+                <div className="w-px h-6 bg-white/10 mx-1 self-center hidden sm:block" />
                 <FilterButton type="ALL" label="الكل" icon={Filter} />
                 <FilterButton type={MediaType.AUDIO} label="صوتيات" icon={Play} />
                 <FilterButton type={MediaType.VIDEO} label="فيديو" icon={Video} />
@@ -626,7 +765,7 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
                 <FilterButton type={MediaType.TEXT} label="نصوص" icon={FileText} />
              </div>
 
-             <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pt-2 border-t border-white/5 mt-2">
+             <div className="flex items-center gap-2 overflow-x-auto pt-2 border-t border-white/5 mt-2 pb-3 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-white/20">
                     <div className="flex items-center gap-1 text-gray-500 pl-2 border-l border-white/10 ml-1 shrink-0">
                         <Clock size={14} />
                         <span className="text-[10px]">التاريخ</span>
@@ -651,9 +790,9 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
             <div className="flex flex-col items-center justify-center py-20 text-gray-500 opacity-60">
                 <Search size={48} className="mb-4 stroke-1" />
                 <p>{searchQuery ? 'لا توجد نتائج مطابقة لبحثك.' : 'لا توجد ذكريات في هذا التصنيف.'}</p>
-                {(filterType !== 'ALL' || timeFilter !== 'ALL' || searchQuery || showFavoritesOnly) && (
+                {(filterType !== 'ALL' || timeFilter !== 'ALL' || searchQuery || showFavoritesOnly || showPinnedOnly) && (
                     <button 
-                        onClick={() => { setFilterType('ALL'); setTimeFilter('ALL'); setSearchQuery(''); setIsSearchOpen(false); setShowFavoritesOnly(false); }}
+                        onClick={() => { setFilterType('ALL'); setTimeFilter('ALL'); setSearchQuery(''); setIsSearchOpen(false); setShowFavoritesOnly(false); setShowPinnedOnly(false); }}
                         className="mt-4 text-xs text-primary hover:underline"
                     >
                         مسح الفلاتر والبحث
@@ -670,6 +809,7 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
                         isPlaying={playingId === mem.id}
                         onTogglePlay={togglePlay}
                         onToggleFavorite={handleToggleFavorite}
+                        onTogglePin={handleTogglePin}
                         onDelete={handleDelete}
                         onSetReminder={openReminderModal}
                         isHighlighted={highlightedMemoryId === mem.id}
