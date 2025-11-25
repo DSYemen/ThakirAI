@@ -88,7 +88,7 @@ function App() {
   return (
     <div className="bg-dark min-h-[100dvh] text-white font-sans overflow-hidden">
       {/* Main Content Area - Full Height */}
-      <main className="h-[100dvh] w-full max-w-md mx-auto relative bg-dark shadow-2xl overflow-hidden">
+      <main className="h-[100dvh] w-full max-w-md mx-auto relative bg-dark shadow-2xl overflow-hidden print:hidden">
            {renderView()}
            
            {/* Navigation Overlay */}

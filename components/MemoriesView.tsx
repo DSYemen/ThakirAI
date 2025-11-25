@@ -3,7 +3,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { getPagedMemories, deleteMemory, saveMemory, FilterOptions, getMemories, getMemoryById } from '../services/db';
 import { MemoryItem, MediaType, ReminderFrequency, Reminder } from '../types';
 import { generateGoogleCalendarLink } from '../services/calendarService';
-import { Play, FileText, Image, Trash2, Video, Pause, Search, Filter, MoreVertical, FileJson, FileSpreadsheet, X, Clock, ChevronLeft, Star, Bell, Calendar, ChevronDown, ChevronUp, ArrowUpDown, Loader2, CalendarDays, Pin, PinOff, Check } from 'lucide-react';
+import { Play, FileText, Image, Trash2, Video, Pause, Search, Filter, MoreVertical, FileJson, FileSpreadsheet, X, Clock, ChevronLeft, Star, Bell, Calendar, ChevronDown, ChevronUp, ArrowUpDown, Loader2, CalendarDays, Pin, PinOff, Check, FileDown } from 'lucide-react';
 
 interface DisplayMemory extends MemoryItem {
     matchScore?: number;
@@ -18,6 +18,7 @@ interface MemoryCardProps {
     onTogglePin: (e: React.MouseEvent, id: string) => void;
     onDelete: (id: string) => void;
     onSetReminder: (e: React.MouseEvent, memory: MemoryItem) => void;
+    onExportPDF: (e: React.MouseEvent, memory: MemoryItem) => void;
     isHighlighted?: boolean;
 }
 
@@ -49,7 +50,7 @@ const formatDuration = (seconds: number) => {
 };
 
 const MemoryCard: React.FC<MemoryCardProps> = ({ 
-    id, memory, isPlaying, onTogglePlay, onToggleFavorite, onTogglePin, onDelete, onSetReminder, isHighlighted
+    id, memory, isPlaying, onTogglePlay, onToggleFavorite, onTogglePin, onDelete, onSetReminder, onExportPDF, isHighlighted
 }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     
@@ -306,6 +307,13 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
                             <Bell size={18} fill={memory.reminder ? "currentColor" : "none"} />
                         </button>
                         <button 
+                            onClick={(e) => onExportPDF(e, memory)}
+                            className="p-2 rounded-full text-gray-500 hover:text-blue-400 hover:bg-blue-400/10 transition-colors"
+                            title="تصدير PDF"
+                        >
+                            <FileDown size={18} />
+                        </button>
+                        <button 
                             onClick={(e) => onToggleFavorite(e, memory.id)}
                             className={`p-2 rounded-full transition-all ${memory.isFavorite ? 'text-yellow-400 bg-yellow-400/10' : 'text-gray-500 hover:text-yellow-400 hover:bg-white/5'}`}
                             title="المفضلة"
@@ -384,6 +392,11 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
   const [reminderDate, setReminderDate] = useState("");
   const [reminderFreq, setReminderFreq] = useState<ReminderFrequency>('ONCE');
 
+  // Print State
+  const [printableMemories, setPrintableMemories] = useState<MemoryItem[] | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
+
   // Infinite Scroll Ref
   const observerTarget = useRef(null);
 
@@ -444,6 +457,44 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
       if (observerTarget.current) observer.unobserve(observerTarget.current);
     };
   }, [hasMore, loading, loadingMore, cursor]);
+
+  // Trigger Print when data is ready with progress simulation
+  useEffect(() => {
+    if (printableMemories && printableMemories.length > 0) {
+        setIsExporting(true);
+        setExportProgress(0);
+
+        // Simulate preparation time (processing images/layout)
+        let currentStep = 0;
+        const totalSteps = 20; // 20 * 50ms = 1 second approx
+        const interval = setInterval(() => {
+            currentStep++;
+            const pct = Math.min(Math.round((currentStep / totalSteps) * 100), 100);
+            setExportProgress(pct);
+
+            if (currentStep >= totalSteps) {
+                clearInterval(interval);
+                // Slight delay at 100% to ensure UI updates before blocking print dialog opens
+                setTimeout(() => {
+                    window.print();
+                }, 200);
+            }
+        }, 50);
+
+        return () => clearInterval(interval);
+    }
+  }, [printableMemories]);
+
+  // Cleanup print state after print
+  useEffect(() => {
+      const handleAfterPrint = () => {
+          setPrintableMemories(null);
+          setIsExporting(false);
+          setExportProgress(0);
+      };
+      window.addEventListener("afterprint", handleAfterPrint);
+      return () => window.removeEventListener("afterprint", handleAfterPrint);
+  }, []);
 
   const loadMemories = async (reset: boolean) => {
     if (reset) setLoading(true);
@@ -525,6 +576,24 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
       const updatedMemory = { ...memory, isPinned: !memory.isPinned };
       setMemories(prev => prev.map(m => m.id === id ? updatedMemory : m));
       await saveMemory(updatedMemory);
+  };
+
+  const handleExportPDF = async (e: React.MouseEvent, memory?: MemoryItem) => {
+      e.stopPropagation();
+      setShowMenu(false);
+      
+      if (memory) {
+          // Export single memory
+          setPrintableMemories([memory]);
+      } else {
+          // Export all currently visible memories
+          setLoading(true);
+          try {
+             setPrintableMemories(memories);
+          } finally {
+              setLoading(false);
+          }
+      }
   };
 
   // Open Reminder Modal for specific memory
@@ -707,6 +776,10 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
 
                   <div className="h-px bg-white/10 my-2" />
                   <div className="text-xs text-gray-500 font-bold px-3 py-2">تصدير</div>
+                  <button onClick={(e) => handleExportPDF(e)} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 rounded-lg text-sm text-gray-200 text-right transition-colors">
+                      <FileDown size={16} className="text-blue-400" />
+                      مستند (PDF)
+                  </button>
                   <button onClick={exportJSON} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 rounded-lg text-sm text-gray-200 text-right transition-colors">
                       <FileJson size={16} className="text-yellow-400" />
                       نسخة كاملة (JSON)
@@ -846,6 +919,7 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
                         onTogglePin={handleTogglePin}
                         onDelete={handleDelete}
                         onSetReminder={openReminderModal}
+                        onExportPDF={handleExportPDF}
                         isHighlighted={highlightedMemoryId === mem.id}
                     />
                 ))}
@@ -938,6 +1012,105 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
                     </div>
                 </div>
             </div>
+        )}
+
+        {/* --- PRINT TEMPLATE (Visible only on print) --- */}
+        {printableMemories && (
+            <div id="print-container" className="hidden print:block fixed inset-0 bg-white z-[9999] overflow-visible">
+                {/* Print Header */}
+                <div className="flex justify-between items-center border-b-2 border-black pb-4 mb-6">
+                    <div>
+                        <h1 className="text-3xl font-bold text-black mb-1">تقرير الذكريات</h1>
+                        <p className="text-sm text-gray-600">تم الاستخراج بتاريخ: {new Date().toLocaleDateString('ar-SA')}</p>
+                    </div>
+                    <div className="text-left">
+                        <h2 className="text-xl font-bold text-black">Thakira AI</h2>
+                        <p className="text-xs text-gray-500">الذاكرة الذكية</p>
+                    </div>
+                </div>
+
+                {/* Print Items */}
+                <div className="space-y-6">
+                    {printableMemories.map((item) => (
+                        <div key={item.id} className="page-break border border-gray-300 rounded-lg p-6 flex gap-6 items-start">
+                             {/* Thumbnail Column */}
+                             {(item.type === MediaType.IMAGE || item.type === MediaType.VIDEO) && (
+                                <div className="w-32 h-32 shrink-0 border border-gray-200 rounded overflow-hidden bg-gray-50">
+                                    <img 
+                                        src={item.content} 
+                                        alt="Thumbnail" 
+                                        className="w-full h-full object-cover" 
+                                    />
+                                </div>
+                             )}
+
+                             {/* Content Column */}
+                             <div className="flex-1">
+                                 <div className="flex justify-between items-start mb-2">
+                                     <div className="flex items-center gap-2">
+                                         <span className="text-xs font-bold px-2 py-1 rounded bg-gray-100 border border-gray-300 text-gray-700">
+                                            {item.type === MediaType.AUDIO ? 'صوت' : item.type === MediaType.VIDEO ? 'فيديو' : item.type === MediaType.IMAGE ? 'صورة' : 'نص'}
+                                         </span>
+                                         <span className="text-xs text-gray-500">
+                                             {new Date(item.createdAt).toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} 
+                                             {' '}- {new Date(item.createdAt).toLocaleTimeString('ar-SA')}
+                                         </span>
+                                     </div>
+                                 </div>
+
+                                 <h3 className="text-lg font-bold text-black mb-2 leading-snug">
+                                     {item.summary || "بدون عنوان"}
+                                 </h3>
+
+                                 <div className="text-sm text-gray-800 leading-loose whitespace-pre-wrap font-serif mb-3">
+                                     {item.transcription || (item.type === MediaType.TEXT ? item.content : "لا يوجد نص")}
+                                 </div>
+
+                                 {item.tags && item.tags.length > 0 && (
+                                     <div className="flex flex-wrap gap-2 mt-2">
+                                         {item.tags.map((tag, idx) => (
+                                             <span key={idx} className="text-xs text-gray-600">#{tag}</span>
+                                         ))}
+                                     </div>
+                                 )}
+                             </div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Print Footer */}
+                <div className="mt-8 pt-4 border-t border-gray-200 text-center text-xs text-gray-500">
+                    تم إنشاء هذا التقرير بواسطة تطبيق الذاكرة الذكية
+                </div>
+            </div>
+        )}
+
+        {/* Export Progress Modal */}
+        {isExporting && (
+             <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+                 <div className="bg-card w-full max-w-xs p-6 rounded-2xl border border-white/10 shadow-2xl text-center space-y-5">
+                     <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mx-auto text-primary shadow-[0_0_15px_rgba(99,102,241,0.3)]">
+                         <FileDown size={32} className="animate-bounce" />
+                     </div>
+                     <div>
+                         <h3 className="text-lg font-bold text-white">جاري تحضير الملف</h3>
+                         <p className="text-xs text-gray-400 mt-1">يتم الآن معالجة الصور والنصوص...</p>
+                     </div>
+                     
+                     <div className="space-y-2">
+                         <div className="flex justify-between text-xs font-medium text-gray-300 px-1">
+                             <span>التقدم</span>
+                             <span>{exportProgress}%</span>
+                         </div>
+                         <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
+                             <div 
+                                 className="h-full bg-gradient-to-r from-primary to-secondary transition-all duration-100 ease-out shadow-[0_0_10px_rgba(168,85,247,0.5)]"
+                                 style={{ width: `${exportProgress}%` }}
+                             />
+                         </div>
+                     </div>
+                 </div>
+             </div>
         )}
     </div>
   );

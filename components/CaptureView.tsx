@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, Video, Mic, Type, Check, Loader2, Bell, X, Calendar, Sparkles, CalendarDays, AlertCircle, CameraOff, MicOff, RefreshCw } from 'lucide-react';
+import { Camera, Video, Mic, Type, Check, Loader2, Bell, X, Calendar, Sparkles, CalendarDays, AlertCircle, CameraOff, MicOff, RefreshCw, Settings } from 'lucide-react';
 import { Camera as CapacitorCamera } from '@capacitor/camera';
 import { analyzeMedia } from '../services/geminiService';
 import { saveMemory } from '../services/db';
@@ -50,18 +50,22 @@ export const CaptureView: React.FC = () => {
     return () => stopCamera();
   }, [mode]);
 
+  const requestNativePermissions = async () => {
+    try {
+        // Request Camera Permission explicitly for Android
+        const camStatus = await CapacitorCamera.checkPermissions();
+        if (camStatus.camera !== 'granted') {
+            await CapacitorCamera.requestPermissions({ permissions: ['camera'] });
+        }
+    } catch (e) {
+        console.warn("Capacitor permission check skipped (web mode)");
+    }
+  };
+
   const startCamera = async () => {
     setDeviceError(null);
     
-    // Explicitly request native permissions for Capacitor (Android/iOS)
-    try {
-        const permissions = await CapacitorCamera.requestPermissions({ permissions: ['camera'] });
-        if (permissions.camera !== 'granted' && permissions.camera !== 'limited') {
-             console.warn("Native camera permission denied");
-        }
-    } catch (e) {
-        console.warn("Capacitor camera permission check failed (safe to ignore in web)", e);
-    }
+    await requestNativePermissions();
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         setDeviceError({ type: 'CAMERA', message: "عذراً، متصفحك لا يدعم الوصول للكاميرا أو أن الاتصال غير آمن (HTTPS مطلوب)." });
@@ -69,10 +73,13 @@ export const CaptureView: React.FC = () => {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' }, 
-        audio: mode === 'VIDEO' 
-      });
+      // For video mode, we try to get audio permission as well initially
+      const constraints = {
+          video: { facingMode: 'environment' },
+          audio: mode === 'VIDEO'
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       setPreviewStream(stream);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -81,11 +88,11 @@ export const CaptureView: React.FC = () => {
       console.error("Camera Access Error", e);
       let msg = "حدث خطأ غير متوقع أثناء تشغيل الكاميرا.";
       if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
-          msg = "يرجى السماح بالوصول للكاميرا من إعدادات المتصفح.";
+          msg = "تم رفض إذن الوصول للكاميرا. يرجى السماح بذلك من إعدادات التطبيق أو المتصفح.";
       } else if (e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError') {
           msg = "لم يتم العثور على كاميرا في هذا الجهاز.";
       } else if (e.name === 'NotReadableError' || e.name === 'TrackStartError') {
-          msg = "الكاميرا مستخدمة بالفعل من قبل تطبيق آخر.";
+          msg = "الكاميرا مستخدمة بالفعل من قبل تطبيق آخر. أغلق التطبيقات الأخرى وحاول مرة أخرى.";
       }
       setDeviceError({ type: 'CAMERA', message: msg });
     }
@@ -104,7 +111,7 @@ export const CaptureView: React.FC = () => {
     
     // Check API support first
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setDeviceError({ type: mode === 'AUDIO' ? 'MIC' : 'CAMERA', message: "عذراً، متصفحك لا يدعم التسجيل." });
+        setDeviceError({ type: mode === 'AUDIO' ? 'MIC' : 'CAMERA', message: "عذراً، جهازك لا يدعم التسجيل." });
         return;
     }
 
@@ -116,7 +123,7 @@ export const CaptureView: React.FC = () => {
             console.error("Mic Access Error", e);
             let msg = "حدث خطأ أثناء تشغيل الميكروفون.";
             if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
-                msg = "يرجى السماح بالوصول للميكروفون من إعدادات المتصفح.";
+                msg = "تم رفض إذن الميكروفون. يرجى الذهاب إلى إعدادات الهاتف -> التطبيقات -> الذاكرة الذكية -> ومنح إذن الميكروفون.";
             } else if (e.name === 'NotFoundError') {
                 msg = "لم يتم العثور على ميكروفون.";
             }
@@ -386,13 +393,15 @@ export const CaptureView: React.FC = () => {
                             </div>
                             <h3 className="text-lg font-bold text-white mb-2">تعذر الوصول للميكروفون</h3>
                             <p className="text-gray-400 text-sm mb-6 leading-relaxed max-w-xs">{deviceError.message}</p>
-                            <button 
-                                onClick={startRecording}
-                                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg text-sm transition-colors"
-                            >
-                                <RefreshCw size={14} />
-                                إعادة المحاولة
-                            </button>
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={startRecording}
+                                    className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg text-sm transition-colors"
+                                >
+                                    <RefreshCw size={14} />
+                                    إعادة المحاولة
+                                </button>
+                            </div>
                         </div>
                     ) : (
                         <>
@@ -400,7 +409,11 @@ export const CaptureView: React.FC = () => {
                                 {isRecording && <div className="absolute inset-0 rounded-full animate-ping bg-primary/20"></div>}
                                 <Mic size={64} className="text-white/80" />
                             </div>
-                            {isRecording && <p className="text-center mt-8 text-primary font-mono animate-pulse">00:00:00</p>}
+                            {isRecording ? (
+                                <p className="text-center mt-8 text-primary font-mono animate-pulse">جاري التسجيل...</p>
+                            ) : (
+                                <p className="text-center mt-8 text-gray-500 text-sm">اضغط على الزر أدناه لبدء التسجيل</p>
+                            )}
                         </>
                     )}
                 </div>
