@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Camera, Video, Mic, Type, Check, Loader2, Bell, X, Calendar, Sparkles, CalendarDays, AlertCircle, CameraOff, MicOff, RefreshCw } from 'lucide-react';
 import { analyzeMedia } from '../services/geminiService';
@@ -471,7 +472,7 @@ export const CaptureView: React.FC = () => {
                 
                 {/* Secondary Inputs Row */}
                 <div className="flex items-center gap-2 w-full">
-                     {/* Reminder Button */}
+                     {/* Reminder Button (Global for convenience, but specific flow is in confirmation modal now too) */}
                      <button 
                         onClick={() => setShowReminderModal(true)}
                          className={`relative p-3 rounded-full border transition-all duration-300 ${activeReminder ? 'bg-secondary border-secondary text-white shadow-[0_0_15px_rgba(168,85,247,0.5)]' : 'bg-white/5 border-white/10 text-gray-400'}`}
@@ -614,6 +615,19 @@ export const CaptureView: React.FC = () => {
                             </span>
                         </div>
                     )}
+
+                    {/* Set Reminder Button inside Confirmation */}
+                    <button 
+                        onClick={() => setShowReminderModal(true)}
+                        className={`w-full py-3 rounded-xl font-medium transition-colors border flex items-center justify-center gap-2 ${
+                            activeReminder 
+                            ? 'bg-secondary/20 text-secondary border-secondary/50' 
+                            : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'
+                        }`}
+                    >
+                        <Bell size={16} fill={activeReminder ? "currentColor" : "none"} className={activeReminder ? "animate-pulse" : ""} />
+                        {activeReminder ? 'تم ضبط التذكير' : 'إضافة تذكير لهذا التسجيل'}
+                    </button>
 
                     <div className="grid grid-cols-2 gap-3">
                         <button 
