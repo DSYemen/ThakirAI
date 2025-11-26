@@ -71,7 +71,3 @@ jobs:
           name: thakira-app-debug
           path: android/app/build/outputs/apk/debug/Thakira-AI-app.apk
           retention-days: 7
-        with:
-          name: thakira-app-debug
-          path: android/app/build/outputs/apk/debug/Thakira-AI-app.apk
-          retention-days: 7
