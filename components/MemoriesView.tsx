@@ -5,6 +5,7 @@ import { MemoryItem, MediaType, Reminder, ReminderFrequency } from '../types';
 import { generateGoogleCalendarLink } from '../services/calendarService';
 import { analyzeMedia } from '../services/geminiService';
 import { getSettings } from '../services/settingsService';
+import { reminderService } from '../services/reminderService';
 import { Play, FileText, Image, Trash2, Video, Pause, Search, Filter, MoreVertical, FileJson, FileSpreadsheet, X, Clock, ChevronLeft, Star, Bell, Calendar, ChevronDown, ChevronUp, ArrowUpDown, Loader2, CalendarDays, Pin, PinOff, FileDown, Sparkles, Check, CheckSquare, Square } from 'lucide-react';
 
 interface DisplayMemory extends MemoryItem {
@@ -357,7 +358,7 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
     } catch (error) { console.error(error); } finally { if (reset) setLoading(false); else setLoadingMore(false); }
   };
 
-  const handleDelete = async (id: string) => { if (confirm("هل أنت متأكد من حذف هذه الذكرى؟")) { await deleteMemory(id); setMemories(prev => prev.filter(m => m.id !== id)); } };
+  const handleDelete = async (id: string) => { if (confirm("هل أنت متأكد من حذف هذه الذكرى؟")) { await deleteMemory(id); await reminderService.cancelNotification(id); setMemories(prev => prev.filter(m => m.id !== id)); } };
   const handleToggleFavorite = async (e: React.MouseEvent, id: string) => { e.stopPropagation(); const memory = memories.find(m => m.id === id); if (!memory) return; const updated = { ...memory, isFavorite: !memory.isFavorite }; setMemories(prev => prev.map(m => m.id === id ? updated : m)); await saveMemory(updated); };
   const handleTogglePin = async (e: React.MouseEvent, id: string) => { e.stopPropagation(); const memory = memories.find(m => m.id === id); if (!memory) return; const updated = { ...memory, isPinned: !memory.isPinned }; setMemories(prev => prev.map(m => m.id === id ? updated : m)); await saveMemory(updated); };
   const handleReAnalyze = async (e: React.MouseEvent, memory: MemoryItem) => {
@@ -369,7 +370,9 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
           let finalReminder = memory.reminder;
           if (!finalReminder && analysis.detectedReminder) finalReminder = { timestamp: new Date(analysis.detectedReminder.isoTimestamp).getTime(), frequency: analysis.detectedReminder.frequency, interval: analysis.detectedReminder.interval || 1 };
           const updated: MemoryItem = { ...memory, transcription: analysis.transcription, summary: analysis.summary, tags: analysis.tags, reminder: finalReminder, analysisStatus: 'COMPLETED' };
-          await saveMemory(updated); setMemories(prev => prev.map(m => m.id === memory.id ? updated : m));
+          await saveMemory(updated); 
+          if(updated.reminder) await reminderService.scheduleNotification(updated);
+          setMemories(prev => prev.map(m => m.id === memory.id ? updated : m));
       } catch (err) { const failed: MemoryItem = { ...memory, analysisStatus: 'FAILED', summary: "فشل التحليل" }; await saveMemory(failed); setMemories(prev => prev.map(m => m.id === memory.id ? failed : m)); }
   };
 
@@ -388,7 +391,10 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
   const saveReminder = async () => {
       if (!selectedMemoryId) return; const memory = memories.find(m => m.id === selectedMemoryId); if (!memory) return;
       const updated = { ...memory, reminder: reminderDate ? { timestamp: new Date(reminderDate).getTime(), frequency: reminderFreq, interval: reminderInterval } : undefined };
-      setMemories(prev => prev.map(m => m.id === selectedMemoryId ? updated : m)); await saveMemory(updated); setReminderModalOpen(false);
+      setMemories(prev => prev.map(m => m.id === selectedMemoryId ? updated : m)); await saveMemory(updated); 
+      if (updated.reminder) await reminderService.scheduleNotification(updated);
+      else await reminderService.cancelNotification(updated.id);
+      setReminderModalOpen(false);
   };
   const togglePlay = (id: string) => {
       if (playingId === id) { setPlayingId(null); (document.getElementById(`audio-${id}`) as HTMLAudioElement)?.pause(); }
@@ -422,6 +428,7 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
       
       for (const id of selectedIds) {
           await deleteMemory(id);
+          await reminderService.cancelNotification(id);
       }
       setMemories(prev => prev.filter(m => !selectedIds.has(m.id)));
       setIsSelectionMode(false);

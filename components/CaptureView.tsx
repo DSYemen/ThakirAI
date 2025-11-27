@@ -5,7 +5,7 @@ import { analyzeMedia } from '../services/geminiService';
 import { saveMemory } from '../services/db';
 import { getSettings } from '../services/settingsService';
 import { saveSingleMediaToPublic } from '../services/storageService';
-import { generateGoogleCalendarLink } from '../services/calendarService';
+import { reminderService } from '../services/reminderService';
 import { MediaType, MemoryItem, Reminder, ReminderFrequency } from '../types';
 
 type CaptureMode = 'AUDIO' | 'VIDEO' | 'IMAGE' | 'TEXT';
@@ -197,6 +197,10 @@ export const CaptureView: React.FC = () => {
         };
 
         await saveMemory(memory);
+        if (memory.reminder) {
+            await reminderService.scheduleNotification(memory);
+        }
+
         resetForm(); 
 
         const settings = getSettings();
@@ -219,6 +223,9 @@ export const CaptureView: React.FC = () => {
                 tags: analysis.tags, reminder: finalReminder, analysisStatus: 'COMPLETED'
             };
             await saveMemory(updatedMemory as MemoryItem); // Cast to avoid TS issues
+            if (finalReminder) {
+                await reminderService.scheduleNotification(updatedMemory as MemoryItem);
+            }
             if (finalReminder && !activeReminder) setTimeout(() => setAutoReminderDetected(false), 5000);
         }).catch(async () => {
             await saveMemory({ ...memory, summary: "فشل التحليل الذكي", analysisStatus: 'FAILED' } as MemoryItem);
@@ -244,6 +251,9 @@ export const CaptureView: React.FC = () => {
         summary: "جاري المعالجة...", tags: [], reminder: activeReminder, analysisStatus: 'PENDING', isFavorite: false, isPinned: false
     };
     await saveMemory(memory);
+    if (memory.reminder) {
+        await reminderService.scheduleNotification(memory);
+    }
     resetForm();
 
     analyzeMedia(MediaType.TEXT, "", inputText).then(async (analysis) => {
@@ -252,7 +262,11 @@ export const CaptureView: React.FC = () => {
             finalReminder = { timestamp: new Date(analysis.detectedReminder.isoTimestamp).getTime(), frequency: analysis.detectedReminder.frequency, interval: analysis.detectedReminder.interval || 1 };
             setAutoReminderDetected(true);
         }
-        await saveMemory({ ...memory, summary: analysis.summary, tags: analysis.tags, reminder: finalReminder, analysisStatus: 'COMPLETED' } as MemoryItem);
+        const updatedMemory = { ...memory, summary: analysis.summary, tags: analysis.tags, reminder: finalReminder, analysisStatus: 'COMPLETED' };
+        await saveMemory(updatedMemory as MemoryItem);
+        if (finalReminder) {
+            await reminderService.scheduleNotification(updatedMemory as MemoryItem);
+        }
     }).catch(async () => {
         await saveMemory({ ...memory, summary: "فشل التحليل الذكي", analysisStatus: 'FAILED' } as MemoryItem);
     });
