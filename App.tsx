@@ -8,14 +8,21 @@ import { SettingsView } from './components/SettingsView';
 import { ScheduleView } from './components/ScheduleView';
 import { reminderService } from './services/reminderService';
 import { getSettings, applyTheme } from './services/settingsService';
+import { offlineService } from './services/offlineService';
 
 function App() {
   const [activeTab, setActiveTab] = useState<'capture' | 'memories' | 'search' | 'settings' | 'schedule'>('capture');
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
-    // Init Reminder Service
+    // Init Services
     reminderService.init();
+    offlineService.init();
+
+    const unsubscribe = offlineService.subscribe((online) => {
+        setIsOnline(online);
+    });
 
     // Apply User Theme Preference
     const settings = getSettings();
@@ -23,6 +30,7 @@ function App() {
     
     return () => {
       reminderService.stop();
+      unsubscribe();
     };
   }, []);
 
@@ -56,7 +64,7 @@ function App() {
            </div>
            
            <div className="print:hidden">
-              <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
+              <Navigation activeTab={activeTab} setActiveTab={setActiveTab} isOnline={isOnline} />
            </div>
       </main>
     </div>

@@ -1,10 +1,81 @@
 
-import React, { useState, useEffect } from 'react';
-import { Moon, Sun, Key, Save, Database, Upload, Download, Smartphone, Check, AlertCircle, Loader2, RefreshCw, FolderOpen, ToggleLeft, ToggleRight, Settings, Globe, Languages } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Moon, Sun, Key, Save, Database, Upload, Download, Smartphone, Check, AlertCircle, Loader2, RefreshCw, FolderOpen, ToggleLeft, ToggleRight, Settings, Globe, Languages, Calendar, ChevronLeft, Search, X } from 'lucide-react';
 import { AppSettings } from '../types';
 import { getSettings, saveSettings } from '../services/settingsService';
 import { exportDatabase, importDatabase } from '../services/db';
 import { saveMediaToDownloads, downloadBackupFile } from '../services/storageService';
+
+interface SelectionModalProps {
+    title: string;
+    options: { value: string; label: string }[];
+    selectedValue: string;
+    onSelect: (value: string) => void;
+    onClose: () => void;
+}
+
+const SelectionModal: React.FC<SelectionModalProps> = ({ title, options, selectedValue, onSelect, onClose }) => {
+    const [searchQuery, setSearchQuery] = useState("");
+
+    const filteredOptions = useMemo(() => {
+        if (!searchQuery) return options;
+        const q = searchQuery.toLowerCase();
+        return options.filter(opt => opt.label.toLowerCase().includes(q) || opt.value.toLowerCase().includes(q));
+    }, [options, searchQuery]);
+
+    return (
+        <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-slate-900 animate-in slide-in-from-bottom-10 duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-white/10 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md">
+                <button onClick={onClose} className="p-2 -ml-2 text-gray-400 hover:text-foreground">
+                    <X size={24} />
+                </button>
+                <h3 className="text-lg font-bold text-foreground">{title}</h3>
+                <div className="w-10" /> {/* Spacer for centering */}
+            </div>
+
+            {/* Search */}
+            <div className="p-4 bg-gray-50 dark:bg-black/20">
+                <div className="relative">
+                    <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input 
+                        type="text" 
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="بحث..." 
+                        autoFocus
+                        className="w-full bg-white dark:bg-card border border-gray-200 dark:border-white/10 rounded-xl py-3 pr-10 pl-4 text-sm text-foreground focus:outline-none focus:border-primary" 
+                    />
+                </div>
+            </div>
+
+            {/* List */}
+            <div className="flex-1 overflow-y-auto p-2">
+                {filteredOptions.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 opacity-50">
+                        <p className="text-sm">لا توجد نتائج</p>
+                    </div>
+                ) : (
+                    <div className="space-y-1">
+                        {filteredOptions.map((opt) => {
+                            const isSelected = opt.value === selectedValue;
+                            return (
+                                <button 
+                                    key={opt.value} 
+                                    onClick={() => onSelect(opt.value)}
+                                    className={`w-full flex items-center justify-between p-4 rounded-xl transition-all ${isSelected ? 'bg-primary/10 text-primary font-bold ring-1 ring-primary' : 'hover:bg-gray-50 dark:hover:bg-white/5 text-gray-600 dark:text-gray-300'}`}
+                                >
+                                    <span className="text-sm text-right" dir="auto">{opt.label}</span>
+                                    {isSelected && <Check size={18} />}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
 
 export const SettingsView: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>(getSettings());
@@ -12,6 +83,9 @@ export const SettingsView: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [availableTimeZones, setAvailableTimeZones] = useState<string[]>([]);
+  
+  // Selection Modal State
+  const [activeModal, setActiveModal] = useState<'TIMEZONE' | 'LANGUAGE' | null>(null);
 
   const languages = [
       { code: 'ar-SA', name: 'العربية (Arabic)' },
@@ -100,36 +174,25 @@ export const SettingsView: React.FC = () => {
                 {/* Timezone */}
                 <div className="space-y-2">
                     <label className="text-xs text-gray-500 flex items-center gap-1"><Globe size={12}/> المنطقة الزمنية</label>
-                    <div className="relative">
-                        <select 
-                            value={settings.timeZone} 
-                            onChange={(e) => setSettings({...settings, timeZone: e.target.value})} 
-                            className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-sm text-foreground focus:border-secondary appearance-none"
-                            dir="ltr"
-                        >
-                            {availableTimeZones.map(tz => (
-                                <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
-                            ))}
-                        </select>
-                        <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">▼</div>
-                    </div>
+                    <button 
+                        onClick={() => setActiveModal('TIMEZONE')}
+                        className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-xl p-3 flex justify-between items-center transition-colors hover:border-secondary"
+                    >
+                        <span className="text-sm text-foreground">{settings.timeZone?.replace(/_/g, ' ') || 'اختر المنطقة...'}</span>
+                        <ChevronLeft size={16} className="text-gray-400" />
+                    </button>
                 </div>
 
                 {/* Language */}
                 <div className="space-y-2">
                     <label className="text-xs text-gray-500 flex items-center gap-1"><Languages size={12}/> لغة التطبيق والبحث</label>
-                    <div className="relative">
-                        <select 
-                            value={settings.language} 
-                            onChange={(e) => setSettings({...settings, language: e.target.value})} 
-                            className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-sm text-foreground focus:border-secondary appearance-none"
-                        >
-                            {languages.map(l => (
-                                <option key={l.code} value={l.code}>{l.name}</option>
-                            ))}
-                        </select>
-                        <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">▼</div>
-                    </div>
+                    <button 
+                        onClick={() => setActiveModal('LANGUAGE')}
+                        className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-xl p-3 flex justify-between items-center transition-colors hover:border-secondary"
+                    >
+                        <span className="text-sm text-foreground">{languages.find(l => l.code === settings.language)?.name || settings.language}</span>
+                        <ChevronLeft size={16} className="text-gray-400" />
+                    </button>
                     <p className="text-[10px] text-gray-400">تستخدم للبحث الصوتي وتحليل الذكاء الاصطناعي.</p>
                 </div>
                 
@@ -138,7 +201,26 @@ export const SettingsView: React.FC = () => {
             </div>
         </div>
 
-        {/* Section 3: Storage */}
+        {/* Section 3: Integrations (Calendar, etc) */}
+        <div className="space-y-3">
+             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider px-1">التكامل</h3>
+             <div className="bg-white dark:bg-card border border-gray-200 dark:border-white/5 rounded-2xl p-5 space-y-4 shadow-sm">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
+                             <Calendar size={14} className="text-blue-500" /> مزامنة تقويم جوجل
+                        </h4>
+                        <p className="text-[10px] text-gray-500">تفعيل خيار "إضافة لتقويم جوجل" تلقائياً</p>
+                    </div>
+                    <button onClick={() => setSettings({...settings, syncNewTasksToCalendar: !settings.syncNewTasksToCalendar})} className={`${settings.syncNewTasksToCalendar ? 'text-blue-500' : 'text-gray-300'}`}>
+                        {settings.syncNewTasksToCalendar ? <ToggleRight size={40} className="opacity-100" /> : <ToggleLeft size={40} />}
+                    </button>
+                </div>
+                <button onClick={handleSaveSettings} className="w-full bg-blue-500/10 text-blue-600 dark:text-blue-500 border border-blue-500/20 py-3 rounded-xl font-bold text-sm flex justify-center gap-2"><Save size={16} /> حفظ التغييرات</button>
+             </div>
+        </div>
+
+        {/* Section 4: Storage */}
         <div className="space-y-3">
              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider px-1">التخزين</h3>
             <div className="bg-white dark:bg-card border border-gray-200 dark:border-white/5 rounded-2xl p-5 space-y-5 shadow-sm">
@@ -156,7 +238,7 @@ export const SettingsView: React.FC = () => {
             </div>
         </div>
 
-        {/* Section 4: AI */}
+        {/* Section 5: AI */}
         <div className="space-y-3">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider px-1">الذكاء الاصطناعي</h3>
             <div className="bg-white dark:bg-card border border-gray-200 dark:border-white/5 rounded-2xl p-5 space-y-4 shadow-sm">
@@ -175,7 +257,7 @@ export const SettingsView: React.FC = () => {
             </div>
         </div>
 
-        {/* Section 5: Data */}
+        {/* Section 6: Data */}
         <div className="space-y-3">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider px-1">البيانات</h3>
             <div className="bg-white dark:bg-card border border-gray-200 dark:border-white/5 rounded-2xl p-5 space-y-4 shadow-sm">
@@ -192,6 +274,26 @@ export const SettingsView: React.FC = () => {
         </div>
         <div className="text-center pt-4 pb-2"><p className="text-xs text-gray-400">الإصدار 1.0.4</p></div>
       </div>
+
+      {/* Modals */}
+      {activeModal === 'TIMEZONE' && (
+          <SelectionModal 
+            title="اختر المنطقة الزمنية"
+            options={availableTimeZones.map(tz => ({ value: tz, label: tz.replace(/_/g, ' ') }))}
+            selectedValue={settings.timeZone || ''}
+            onSelect={(val) => { setSettings({ ...settings, timeZone: val }); setActiveModal(null); }}
+            onClose={() => setActiveModal(null)}
+          />
+      )}
+      {activeModal === 'LANGUAGE' && (
+          <SelectionModal 
+            title="اختر لغة التطبيق"
+            options={languages.map(l => ({ value: l.code, label: l.name }))}
+            selectedValue={settings.language || ''}
+            onSelect={(val) => { setSettings({ ...settings, language: val }); setActiveModal(null); }}
+            onClose={() => setActiveModal(null)}
+          />
+      )}
     </div>
   );
 };

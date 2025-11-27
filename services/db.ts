@@ -3,7 +3,7 @@ import { MemoryItem, MediaType } from '../types';
 
 const DB_NAME = 'ThakiraDB';
 const STORE_NAME = 'memories';
-const VERSION = 7; // Upgraded to 7 for interval support
+const VERSION = 9; // Upgraded to 9 for type_createdAt index optimization
 
 const openDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -39,6 +39,16 @@ const openDB = (): Promise<IDBDatabase> => {
       }
       if (!store.indexNames.contains('isPinned_createdAt')) {
         store.createIndex('isPinned_createdAt', ['isPinned', 'createdAt'], { unique: false });
+      }
+      
+      // New index for offline sync
+      if (!store.indexNames.contains('analysisStatus')) {
+        store.createIndex('analysisStatus', 'analysisStatus', { unique: false });
+      }
+
+      // New index for optimized Type filtering sorted by Date
+      if (!store.indexNames.contains('type_createdAt')) {
+        store.createIndex('type_createdAt', ['type', 'createdAt'], { unique: false });
       }
       
       // Migration logic is handled automatically by IndexedDB on upgrade
@@ -111,7 +121,6 @@ export const getDueReminders = async (timestamp: number): Promise<MemoryItem[]> 
   });
 };
 
-// New function to get ALL scheduled items sorted by date
 export const getAllReminders = async (): Promise<MemoryItem[]> => {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -124,14 +133,33 @@ export const getAllReminders = async (): Promise<MemoryItem[]> => {
     }
 
     const index = store.index('reminderTimestamp');
-    const request = index.getAll(); // Get all
+    const request = index.getAll();
 
     request.onsuccess = () => {
-        // We might want to sort them manually if the index order isn't sufficient or if we want to filter empty reminders
         const results = (request.result as MemoryItem[]).filter(m => m.reminder);
         results.sort((a, b) => (a.reminder!.timestamp - b.reminder!.timestamp));
         resolve(results);
     };
+    request.onerror = () => reject(request.error);
+  });
+};
+
+// New function to get memories pending analysis (for offline sync)
+export const getPendingMemories = async (): Promise<MemoryItem[]> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    
+    if (!store.indexNames.contains('analysisStatus')) {
+        resolve([]);
+        return;
+    }
+
+    const index = store.index('analysisStatus');
+    const request = index.getAll('PENDING');
+
+    request.onsuccess = () => resolve(request.result || []);
     request.onerror = () => reject(request.error);
   });
 };
@@ -160,23 +188,50 @@ export const getPagedMemories = async (
     const transaction = db.transaction([STORE_NAME], 'readonly');
     const store = transaction.objectStore(STORE_NAME);
     
+    // 1. Intelligent Index Selection
     let indexName = 'createdAt';
-    if (filters.sortBy === 'FAVORITES') indexName = 'isFavorite_createdAt';
-    else if (filters.sortBy === 'PINNED') indexName = 'isPinned_createdAt';
+    if (filters.sortBy === 'FAVORITES') {
+        indexName = 'isFavorite_createdAt';
+    } else if (filters.sortBy === 'PINNED') {
+        indexName = 'isPinned_createdAt';
+    } else if (filters.type !== 'ALL') {
+        // Optimization: Use type_createdAt if filtering by type and sorting by date
+        // This avoids scanning all media types when we only want one specific type
+        indexName = 'type_createdAt';
+    }
     
+    // Fallback if index doesn't exist (e.g. during migration)
     if (!store.indexNames.contains(indexName)) indexName = 'createdAt';
 
     const index = store.index(indexName);
-    const direction = 'prev';
+    const direction = 'prev'; // Descending order (newest/favorite first)
 
+    // 2. Construct Key Range
     let range: IDBKeyRange | null = null;
-    if (startCursor) {
-      range = IDBKeyRange.upperBound(startCursor.value, true); 
+
+    if (indexName === 'type_createdAt' && filters.type !== 'ALL') {
+        // If optimizing by type, bound the range to that type
+        // Upper Bound (Start): [Type, MaxDate] OR [Type, CursorDate]
+        // Lower Bound (End): [Type, 0]
+        const type = filters.type;
+        const upper = startCursor ? startCursor.value : [type, Number.MAX_SAFE_INTEGER];
+        const lower = [type, 0];
+        
+        // exclusive upper bound if cursor exists (skip the item we just saw)
+        range = IDBKeyRange.bound(lower, upper, false, !!startCursor);
+    } else {
+        // Standard indices
+        if (startCursor) {
+             range = IDBKeyRange.upperBound(startCursor.value, true); 
+        }
     }
 
     const request = index.openCursor(range, direction);
     
     const items: MemoryItem[] = [];
+    
+    // We already handle the cursor skipping via IDBKeyRange above,
+    // but strict safety check if indices differ slightly
     let hasSkippedToCursor = !startCursor;
 
     request.onsuccess = (event) => {
@@ -187,6 +242,7 @@ export const getPagedMemories = async (
         return;
       }
 
+      // Safety: Double check we passed the cursor if range calculation was fuzzy
       if (!hasSkippedToCursor && startCursor) {
           if (cursor.value.id === startCursor.id) {
               hasSkippedToCursor = true;
@@ -196,10 +252,15 @@ export const getPagedMemories = async (
       const memory = cursor.value as MemoryItem;
       let matches = true;
 
+      // 3. Filter Logic
+      // Note: If using 'type_createdAt', the type check is implicit, but we keep it for safety.
       if (filters.type !== 'ALL' && memory.type !== filters.type) matches = false;
+      
+      // If sorting by favorites, the index handles order, but we might still need to filter by pinned/type
       if (matches && filters.showFavoritesOnly && !memory.isFavorite) matches = false;
       if (matches && filters.showPinnedOnly && !memory.isPinned) matches = false;
 
+      // Time Filter (Complex logic not indexable easily)
       if (matches && filters.timeFilter !== 'ALL') {
           const date = new Date(memory.createdAt);
           const now = new Date();
@@ -213,6 +274,7 @@ export const getPagedMemories = async (
           else if (filters.timeFilter === 'YEAR' && diffDays > 365) matches = false;
       }
 
+      // Search Filter (Full text scan required on results)
       if (matches && filters.searchQuery) {
           const q = filters.searchQuery.toLowerCase();
           const text = (memory.transcription || memory.content || '').toLowerCase();
@@ -249,8 +311,6 @@ export const deleteMemory = async (id: string): Promise<void> => {
   });
 };
 
-// === IMPORT / EXPORT / CLEAR ===
-
 export const exportDatabase = async (): Promise<string> => {
     const items = await getMemories();
     const backup = {
@@ -272,18 +332,12 @@ export const importDatabase = async (jsonData: string): Promise<boolean> => {
         return new Promise((resolve, reject) => {
             const transaction = db.transaction([STORE_NAME], 'readwrite');
             const store = transaction.objectStore(STORE_NAME);
-            
-            // Clear existing data
             const clearReq = store.clear();
             
             clearReq.onsuccess = () => {
-                let count = 0;
                 backup.data.forEach((item: MemoryItem) => {
                     store.put(item);
-                    count++;
                 });
-                
-                // Wait for transaction complete
                 transaction.oncomplete = () => resolve(true);
             };
             

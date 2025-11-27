@@ -1,15 +1,24 @@
 
 import React from 'react';
-import { Mic, LayoutGrid, Sparkles, Settings, CalendarDays } from 'lucide-react';
+import { Mic, LayoutGrid, Sparkles, Settings, CalendarDays, WifiOff } from 'lucide-react';
 
 interface NavigationProps {
   activeTab: 'capture' | 'memories' | 'search' | 'settings' | 'schedule';
   setActiveTab: (tab: 'capture' | 'memories' | 'search' | 'settings' | 'schedule') => void;
+  isOnline?: boolean;
 }
 
-export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab }) => {
+export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab, isOnline = true }) => {
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-gray-200 dark:border-white/10 pb-6 pt-3 px-2 z-50 transition-colors duration-300">
+      
+      {!isOnline && (
+        <div className="absolute -top-6 left-0 right-0 bg-red-500 text-white text-[10px] py-1 text-center font-bold flex items-center justify-center gap-2">
+            <WifiOff size={12} />
+            <span>أنت غير متصل بالإنترنت</span>
+        </div>
+      )}
+
       <div className="flex justify-between items-end max-w-md mx-auto px-4">
         
         <button 

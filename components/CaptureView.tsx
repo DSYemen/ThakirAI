@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Camera, Video, Mic, Type, Check, Loader2, Bell, X, Calendar, Sparkles, CalendarDays, AlertCircle, CameraOff, MicOff, RefreshCw, Settings, Maximize2 } from 'lucide-react';
 import { Camera as CapacitorCamera } from '@capacitor/camera';
@@ -6,6 +7,7 @@ import { saveMemory } from '../services/db';
 import { getSettings } from '../services/settingsService';
 import { saveSingleMediaToPublic } from '../services/storageService';
 import { reminderService } from '../services/reminderService';
+import { offlineService } from '../services/offlineService';
 import { MediaType, MemoryItem, Reminder, ReminderFrequency } from '../types';
 
 type CaptureMode = 'AUDIO' | 'VIDEO' | 'IMAGE' | 'TEXT';
@@ -189,11 +191,17 @@ export const CaptureView: React.FC = () => {
       try {
         const base64 = await blobToBase64(blob);
         const id = crypto.randomUUID();
+        const isOffline = !offlineService.online;
 
         const memory: MemoryItem = {
             id, type, content: base64, createdAt: Date.now(), transcription: "", 
-            summary: "جاري المعالجة والتحليل...", tags: [], metadata: { mimeType },
-            reminder: activeReminder, analysisStatus: 'PENDING', isFavorite: false, isPinned: false
+            summary: isOffline ? "بانتظار الاتصال بالإنترنت..." : "جاري المعالجة والتحليل...", 
+            tags: [], 
+            metadata: { mimeType, userContext: inputText }, // Save context for later
+            reminder: activeReminder, 
+            analysisStatus: 'PENDING', 
+            isFavorite: false, 
+            isPinned: false
         };
 
         await saveMemory(memory);
@@ -206,6 +214,12 @@ export const CaptureView: React.FC = () => {
         const settings = getSettings();
         if (settings.autoSaveMedia) {
              saveSingleMediaToPublic(base64, type, settings.customMediaFolder).then(s => { if(s) console.log("Auto-saved"); });
+        }
+
+        // Only analyze if online
+        if (isOffline) {
+            setStatus("saved_offline");
+            return;
         }
 
         analyzeMedia(type, base64, inputText).then(async (analysis) => {
@@ -222,7 +236,7 @@ export const CaptureView: React.FC = () => {
                 ...memory, transcription: analysis.transcription, summary: analysis.summary,
                 tags: analysis.tags, reminder: finalReminder, analysisStatus: 'COMPLETED'
             };
-            await saveMemory(updatedMemory as MemoryItem); // Cast to avoid TS issues
+            await saveMemory(updatedMemory as MemoryItem); 
             if (finalReminder) {
                 await reminderService.scheduleNotification(updatedMemory as MemoryItem);
             }
@@ -246,15 +260,27 @@ export const CaptureView: React.FC = () => {
     if (!inputText.trim()) return;
     setStatus("processing");
     const id = crypto.randomUUID();
+    const isOffline = !offlineService.online;
+
     const memory: MemoryItem = {
         id, type: MediaType.TEXT, content: inputText, createdAt: Date.now(), transcription: inputText,
-        summary: "جاري المعالجة...", tags: [], reminder: activeReminder, analysisStatus: 'PENDING', isFavorite: false, isPinned: false
+        summary: isOffline ? "بانتظار الاتصال..." : "جاري المعالجة...", 
+        tags: [], 
+        reminder: activeReminder, 
+        analysisStatus: 'PENDING', 
+        isFavorite: false, 
+        isPinned: false
     };
     await saveMemory(memory);
     if (memory.reminder) {
         await reminderService.scheduleNotification(memory);
     }
     resetForm();
+
+    if (isOffline) {
+        setStatus("saved_offline");
+        return;
+    }
 
     analyzeMedia(MediaType.TEXT, "", inputText).then(async (analysis) => {
         let finalReminder = activeReminder;
@@ -331,6 +357,12 @@ export const CaptureView: React.FC = () => {
                      <div className="bg-green-500/10 px-3 py-1 rounded-full flex items-center gap-2 text-xs text-green-500 font-bold border border-green-500/20">
                          <Check size={12} />
                          <span>تم الحفظ</span>
+                     </div>
+                )}
+                 {status === 'saved_offline' && (
+                     <div className="bg-yellow-500/10 px-3 py-1 rounded-full flex items-center gap-2 text-xs text-yellow-500 font-bold border border-yellow-500/20">
+                         <Check size={12} />
+                         <span>حفظ (غير متصل)</span>
                      </div>
                 )}
              </div>

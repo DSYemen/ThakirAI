@@ -1,4 +1,5 @@
 
+
 import { AppSettings } from '../types';
 
 const SETTINGS_KEY = 'thakira_app_settings';
@@ -19,7 +20,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   autoSaveMedia: false,
   customMediaFolder: 'Thakira_Media',
   timeZone: getDefaultTimeZone(),
-  language: 'ar-SA'
+  language: 'ar-SA',
+  syncNewTasksToCalendar: true
 };
 
 export const getSettings = (): AppSettings => {

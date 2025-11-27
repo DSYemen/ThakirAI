@@ -1,4 +1,5 @@
 
+
 export enum MediaType {
   TEXT = 'TEXT',
   AUDIO = 'AUDIO',
@@ -40,6 +41,7 @@ export interface MemoryItem {
     duration?: number;
     mimeType?: string;
     originalName?: string;
+    userContext?: string; // New: To store input text for offline processing
   };
 }
 
@@ -57,4 +59,5 @@ export interface AppSettings {
   customMediaFolder?: string;
   timeZone?: string; // New: User Timezone
   language?: string; // New: User Language preference
+  syncNewTasksToCalendar?: boolean; // New: Default preference for Google Calendar sync
 }

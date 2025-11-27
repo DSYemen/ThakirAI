@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { getAllReminders, saveMemory } from '../services/db';
 import { generateGoogleCalendarLink, openCalendarSearch } from '../services/calendarService';
@@ -92,9 +93,10 @@ const TaskCard: React.FC<TaskCardProps> = ({ item, isOverdue = false, onComplete
                         </button>
                         <button 
                             onClick={(e) => { e.stopPropagation(); onEditCategory(item); }}
-                            className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${styles.iconBg} ${styles.text} opacity-80 hover:opacity-100 transition-opacity`}
+                            className={`flex-shrink-0 w-auto px-2 h-7 rounded-full flex items-center justify-center gap-1 ${styles.iconBg} ${styles.text} opacity-80 hover:opacity-100 transition-opacity`}
                         >
                             {renderIcon()}
+                            {item.category && <span className="text-[10px] font-bold">{item.category.label}</span>}
                         </button>
                     </div>
                 </div>
@@ -230,7 +232,10 @@ export const ScheduleView: React.FC = () => {
           setTaskDate(new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16));
           setTaskFreq('ONCE');
           setTaskInterval(1);
-          setSyncAddToCalendar(true); 
+          
+          // Apply User Preference
+          const settings = getSettings();
+          setSyncAddToCalendar(settings.syncNewTasksToCalendar ?? true); 
       }
       setShowTaskModal(true);
   };
@@ -655,18 +660,35 @@ export const ScheduleView: React.FC = () => {
                     
                     <div className="space-y-4">
                         <div>
-                            <label className="text-xs font-bold text-gray-500 mb-2 block">نوع التصنيف</label>
-                            <div className="grid grid-cols-2 gap-3">
+                            <label className="text-xs font-bold text-gray-500 mb-2 block">اسم التصنيف</label>
+                            <input 
+                                type="text" 
+                                value={pendingCategory.label} 
+                                onChange={(e) => setPendingCategory({...pendingCategory, label: e.target.value})}
+                                placeholder="مثال: طبيب، اجتماع، تسوق..."
+                                className="w-full bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-sm text-foreground focus:border-primary focus:outline-none mb-3"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 mb-2 block">نوع الأيقونة</label>
+                            <div className="grid grid-cols-3 gap-2">
                                 {PRESET_CATEGORIES.map(cat => {
                                     const style = CATEGORY_STYLES[cat.colorName];
-                                    const isSelected = pendingCategory.id === cat.id;
+                                    const isSelectedIcon = pendingCategory.iconName === cat.iconName;
                                     return (
                                         <button 
                                             key={cat.id} 
-                                            onClick={() => setPendingCategory({ ...pendingCategory, id: cat.id, label: cat.label, iconName: cat.iconName })}
-                                            className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${isSelected ? `ring-2 ring-primary border-transparent bg-primary/5` : 'bg-gray-50 dark:bg-white/5 border-transparent hover:bg-gray-100 dark:hover:bg-white/10'}`}
+                                            onClick={() => setPendingCategory({ 
+                                                ...pendingCategory, 
+                                                id: cat.id, 
+                                                iconName: cat.iconName,
+                                                // Only update label if it matches a generic preset name to avoid overwriting custom names
+                                                label: PRESET_CATEGORIES.some(p => p.label === pendingCategory.label) ? cat.label : pendingCategory.label
+                                            })}
+                                            className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${isSelectedIcon ? `ring-2 ring-primary border-transparent bg-primary/5` : 'bg-gray-50 dark:bg-white/5 border-transparent hover:bg-gray-100 dark:hover:bg-white/10'}`}
                                         >
-                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isSelected ? 'bg-primary text-white' : 'bg-gray-200 dark:bg-white/10 text-gray-500'}`}>
+                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isSelectedIcon ? 'bg-primary text-white' : 'bg-gray-200 dark:bg-white/10 text-gray-500'}`}>
                                                 {cat.iconName === 'briefcase' && <Briefcase size={16} />}
                                                 {cat.iconName === 'heart' && <Heart size={16} />}
                                                 {cat.iconName === 'user' && <User size={16} />}
@@ -674,7 +696,7 @@ export const ScheduleView: React.FC = () => {
                                                 {cat.iconName === 'party' && <PartyPopper size={16} />}
                                                 {cat.iconName === 'default' && <Hash size={16} />}
                                             </div>
-                                            <span className={`text-sm font-bold ${isSelected ? 'text-primary' : 'text-gray-600 dark:text-gray-400'}`}>{cat.label}</span>
+                                            <span className="text-[10px] font-bold text-gray-400">{cat.label}</span>
                                         </button>
                                     );
                                 })}
