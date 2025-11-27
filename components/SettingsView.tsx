@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Moon, Sun, Key, Save, Database, Upload, Download, Smartphone, Check, AlertCircle, Loader2, RefreshCw, FolderOpen, ToggleLeft, ToggleRight, Settings } from 'lucide-react';
 import { AppSettings } from '../types';
@@ -19,7 +20,13 @@ export const SettingsView: React.FC = () => {
   };
 
   const showStatus = (type: 'success' | 'error', text: string) => { setStatusMsg({ type, text }); setTimeout(() => setStatusMsg(null), 4000); };
-  const toggleTheme = () => { const newTheme = settings.theme === 'dark' ? 'light' : 'dark'; const newSettings = { ...settings, theme: newTheme }; setSettings(newSettings); saveSettings(newSettings); };
+  
+  const toggleTheme = () => { 
+    const newTheme: 'dark' | 'light' = settings.theme === 'dark' ? 'light' : 'dark'; 
+    const newSettings: AppSettings = { ...settings, theme: newTheme }; 
+    setSettings(newSettings); 
+    saveSettings(newSettings); 
+  };
 
   const handleExportDB = async () => { setIsProcessing(true); try { const json = await exportDatabase(); downloadBackupFile(json); showStatus('success', 'تم النسخ الاحتياطي.'); } catch (e) { showStatus('error', 'فشل النسخ.'); } finally { setIsProcessing(false); } };
   const handleImportDB = async (e: React.ChangeEvent<HTMLInputElement>) => {
