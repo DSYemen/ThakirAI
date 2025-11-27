@@ -3,7 +3,8 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { getPagedMemories, deleteMemory, saveMemory, FilterOptions, getMemories, getMemoryById } from '../services/db';
 import { MemoryItem, MediaType, ReminderFrequency, Reminder } from '../types';
 import { generateGoogleCalendarLink } from '../services/calendarService';
-import { Play, FileText, Image, Trash2, Video, Pause, Search, Filter, MoreVertical, FileJson, FileSpreadsheet, X, Clock, ChevronLeft, Star, Bell, Calendar, ChevronDown, ChevronUp, ArrowUpDown, Loader2, CalendarDays, Pin, PinOff, Check, FileDown } from 'lucide-react';
+import { analyzeMedia } from '../services/geminiService';
+import { Play, FileText, Image, Trash2, Video, Pause, Search, Filter, MoreVertical, FileJson, FileSpreadsheet, X, Clock, ChevronLeft, Star, Bell, Calendar, ChevronDown, ChevronUp, ArrowUpDown, Loader2, CalendarDays, Pin, PinOff, Check, FileDown, Sparkles } from 'lucide-react';
 
 interface DisplayMemory extends MemoryItem {
     matchScore?: number;
@@ -19,6 +20,7 @@ interface MemoryCardProps {
     onDelete: (id: string) => void;
     onSetReminder: (e: React.MouseEvent, memory: MemoryItem) => void;
     onExportPDF: (e: React.MouseEvent, memory: MemoryItem) => void;
+    onReAnalyze: (e: React.MouseEvent, memory: MemoryItem) => void;
     isHighlighted?: boolean;
 }
 
@@ -50,7 +52,7 @@ const formatDuration = (seconds: number) => {
 };
 
 const MemoryCard: React.FC<MemoryCardProps> = ({ 
-    id, memory, isPlaying, onTogglePlay, onToggleFavorite, onTogglePin, onDelete, onSetReminder, onExportPDF, isHighlighted
+    id, memory, isPlaying, onTogglePlay, onToggleFavorite, onTogglePin, onDelete, onSetReminder, onExportPDF, onReAnalyze, isHighlighted
 }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     
@@ -133,11 +135,13 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
         containerClasses += "border-white/5 hover:border-white/10 bg-card/50";
     }
 
+    const isPending = memory.analysisStatus === 'PENDING';
+
     return (
         <div 
             id={id}
-            onClick={() => setIsExpanded(!isExpanded)}
-            className={containerClasses}
+            onClick={() => !isPending && setIsExpanded(!isExpanded)}
+            className={`${containerClasses} ${isPending ? 'opacity-80 cursor-wait' : ''}`}
         >
             {/* Visual Indicator for Reminder - pulsing border overlay */}
              {memory.reminder && !isHighlighted && !memory.isPinned && (
@@ -174,35 +178,44 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
                      </div>
                  </div>
 
-                 {/* Match Score Badge (Search Mode) or Pin Icon */}
-                 {memory.matchScore !== undefined ? (
-                    <div className="bg-green-500/10 text-green-400 border border-green-500/20 text-[10px] font-bold px-2 py-1 rounded-full flex items-center gap-1">
-                        <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></div>
-                        {memory.matchScore}%
-                    </div>
-                 ) : memory.isPinned ? (
-                     <div className="text-cyan-400 bg-cyan-400/10 p-1.5 rounded-full border border-cyan-400/20">
-                         <Pin size={12} fill="currentColor" />
-                     </div>
-                 ) : null}
+                 {/* Status Indicators */}
+                 <div className="flex items-center gap-2">
+                     {isPending && (
+                         <div className="flex items-center gap-1.5 bg-yellow-500/10 text-yellow-500 px-2 py-1 rounded-full border border-yellow-500/20">
+                             <Loader2 size={10} className="animate-spin" />
+                             <span className="text-[10px]">جاري التحليل</span>
+                         </div>
+                     )}
+                     
+                     {memory.matchScore !== undefined ? (
+                        <div className="bg-green-500/10 text-green-400 border border-green-500/20 text-[10px] font-bold px-2 py-1 rounded-full flex items-center gap-1">
+                            <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></div>
+                            {memory.matchScore}%
+                        </div>
+                     ) : memory.isPinned ? (
+                         <div className="text-cyan-400 bg-cyan-400/10 p-1.5 rounded-full border border-cyan-400/20">
+                             <Pin size={12} fill="currentColor" />
+                         </div>
+                     ) : null}
+                 </div>
             </div>
 
             {/* Summary Section (Card Body) */}
             <div className="px-4 py-1 relative z-10">
-                <h3 className={`font-bold text-gray-200 leading-relaxed transition-all duration-300 ${isExpanded ? 'text-lg mb-2' : 'text-sm line-clamp-1'}`}>
-                    {memory.summary || "بدون عنوان"}
+                <h3 className={`font-bold text-gray-200 leading-relaxed transition-all duration-300 ${isExpanded ? 'text-lg mb-2' : 'text-sm line-clamp-1'} ${isPending ? 'animate-pulse text-gray-400' : ''}`}>
+                    {memory.summary || (isPending ? "جاري استخراج العنوان..." : "بدون عنوان")}
                 </h3>
                 
                 {/* Collapsed Content Snippet */}
                 {!isExpanded && (
                     <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">
-                        {memory.transcription || memory.content}
+                        {isPending ? "يتم الآن معالجة المحتوى بواسطة الذكاء الاصطناعي..." : (memory.transcription || memory.content)}
                     </p>
                 )}
             </div>
 
             {/* Expanded Content Area */}
-            {isExpanded && (
+            {isExpanded && !isPending && (
                 <div className="px-4 py-2 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300 relative z-10">
                     
                     {/* Media Viewer */}
@@ -301,13 +314,26 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
                     <div className="flex items-center gap-1">
                         <button 
                             onClick={(e) => onSetReminder(e, memory)}
+                            disabled={isPending}
                             className={`p-2 rounded-full transition-all ${memory.reminder ? 'text-secondary bg-secondary/10' : 'text-gray-500 hover:text-secondary hover:bg-white/5'}`}
                             title="ضبط تذكير"
                         >
                             <Bell size={18} fill={memory.reminder ? "currentColor" : "none"} />
                         </button>
+                        
+                        {/* Re-Analyze Button */}
+                        <button 
+                            onClick={(e) => onReAnalyze(e, memory)}
+                            disabled={isPending}
+                            className={`p-2 rounded-full transition-all ${isPending ? 'text-yellow-500/50' : 'text-gray-500 hover:text-yellow-400 hover:bg-yellow-400/10'}`}
+                            title="إعادة التحليل الذكي"
+                        >
+                            <Sparkles size={18} className={isPending ? 'animate-pulse' : ''} />
+                        </button>
+
                         <button 
                             onClick={(e) => onExportPDF(e, memory)}
+                            disabled={isPending}
                             className="p-2 rounded-full text-gray-500 hover:text-blue-400 hover:bg-blue-400/10 transition-colors"
                             title="تصدير PDF"
                         >
@@ -336,19 +362,21 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
                         </button>
                     </div>
 
-                    <button className="flex items-center gap-1.5 text-xs text-primary font-medium hover:text-primary/80 transition-colors px-2 py-1">
-                        {isExpanded ? (
-                            <>
-                                <span>عرض أقل</span>
-                                <ChevronUp size={14} />
-                            </>
-                        ) : (
-                            <>
-                                <span>عرض التفاصيل</span>
-                                <ChevronDown size={14} />
-                            </>
-                        )}
-                    </button>
+                    {!isPending && (
+                        <button className="flex items-center gap-1.5 text-xs text-primary font-medium hover:text-primary/80 transition-colors px-2 py-1">
+                            {isExpanded ? (
+                                <>
+                                    <span>عرض أقل</span>
+                                    <ChevronUp size={14} />
+                                </>
+                            ) : (
+                                <>
+                                    <span>عرض التفاصيل</span>
+                                    <ChevronDown size={14} />
+                                </>
+                            )}
+                        </button>
+                    )}
                 </div>
             </div>
             
@@ -578,6 +606,46 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
       await saveMemory(updatedMemory);
   };
 
+  const handleReAnalyze = async (e: React.MouseEvent, memory: MemoryItem) => {
+      e.stopPropagation();
+      if (!memory) return;
+
+      // Update UI to pending
+      const pendingMemory: DisplayMemory = { ...memory, analysisStatus: 'PENDING', summary: "جاري إعادة التحليل..." };
+      setMemories(prev => prev.map(m => m.id === memory.id ? pendingMemory : m));
+      await saveMemory(pendingMemory);
+
+      try {
+          const analysis = await analyzeMedia(memory.type, memory.content);
+          
+          let finalReminder = memory.reminder;
+          if (!finalReminder && analysis.detectedReminder) {
+              finalReminder = {
+                  timestamp: new Date(analysis.detectedReminder.isoTimestamp).getTime(),
+                  frequency: analysis.detectedReminder.frequency
+              };
+          }
+
+          const updatedMemory: MemoryItem = {
+              ...memory,
+              transcription: analysis.transcription,
+              summary: analysis.summary,
+              tags: analysis.tags,
+              reminder: finalReminder,
+              analysisStatus: 'COMPLETED'
+          };
+          
+          await saveMemory(updatedMemory);
+          setMemories(prev => prev.map(m => m.id === memory.id ? updatedMemory : m));
+
+      } catch (err) {
+          console.error("Re-analyze failed", err);
+          const failedMemory: MemoryItem = { ...memory, analysisStatus: 'FAILED', summary: "فشل التحليل" };
+          await saveMemory(failedMemory);
+          setMemories(prev => prev.map(m => m.id === memory.id ? failedMemory : m));
+      }
+  };
+
   const handleExportPDF = async (e: React.MouseEvent, memory?: MemoryItem) => {
       e.stopPropagation();
       setShowMenu(false);
@@ -699,245 +767,249 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
   );
 
   return (
-    <div className="flex flex-col h-full bg-dark relative" onClick={() => { showMenu && setShowMenu(false); }}>
-      {/* Header & Filter */}
-      <div className="sticky top-0 z-30 bg-dark/95 backdrop-blur border-b border-white/5 p-4 space-y-3 shadow-lg shadow-black/20">
-          <div className="flex items-center justify-between h-10">
-            {isSearchOpen ? (
-                <div className="flex items-center gap-2 flex-1 animate-in slide-in-from-left-2 fade-in duration-200">
-                    <div className="relative flex-1">
-                        <input 
-                            type="text" 
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="ابحث..."
-                            autoFocus
-                            className="w-full bg-white/10 border border-white/10 rounded-lg py-2 px-3 pl-8 text-sm text-white focus:outline-none focus:ring-1 focus:ring-primary"
-                        />
-                        {searchQuery && (
-                            <button onClick={() => setSearchQuery('')} className="absolute left-2 top-2 text-gray-400">
-                                <X size={14} />
-                            </button>
-                        )}
+    <div className="flex flex-col h-full bg-dark relative">
+      {/* WRAPPER FOR SCREEN CONTENT TO HIDE ON PRINT */}
+      <div className="flex flex-col h-full print:hidden">
+        {/* Header & Filter */}
+        <div className="sticky top-0 z-30 bg-dark/95 backdrop-blur border-b border-white/5 p-4 space-y-3 shadow-lg shadow-black/20">
+            <div className="flex items-center justify-between h-10">
+                {isSearchOpen ? (
+                    <div className="flex items-center gap-2 flex-1 animate-in slide-in-from-left-2 fade-in duration-200">
+                        <div className="relative flex-1">
+                            <input 
+                                type="text" 
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                placeholder="ابحث..."
+                                autoFocus
+                                className="w-full bg-white/10 border border-white/10 rounded-lg py-2 px-3 pl-8 text-sm text-white focus:outline-none focus:ring-1 focus:ring-primary"
+                            />
+                            {searchQuery && (
+                                <button onClick={() => setSearchQuery('')} className="absolute left-2 top-2 text-gray-400">
+                                    <X size={14} />
+                                </button>
+                            )}
+                        </div>
+                        <button onClick={() => { setIsSearchOpen(false); setSearchQuery(''); }} className="text-gray-400 p-1">
+                            <ChevronLeft size={20} className="rtl:rotate-180" />
+                        </button>
                     </div>
-                    <button onClick={() => { setIsSearchOpen(false); setSearchQuery(''); }} className="text-gray-400 p-1">
-                        <ChevronLeft size={20} className="rtl:rotate-180" />
+                ) : (
+                    <>
+                        <h2 className="text-xl font-bold text-white">شريط الذكريات</h2>
+                        <div className="flex items-center gap-3">
+                            <button onClick={() => setIsSearchOpen(true)} className="p-2 rounded-full hover:bg-white/10 text-gray-300 transition-colors">
+                                <Search size={20} />
+                            </button>
+                            <span className="text-xs text-gray-500 bg-white/5 px-2 py-1 rounded-md">{memories.length}+</span>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
+                                className="p-2 rounded-full hover:bg-white/10 text-gray-300 transition-colors"
+                            >
+                                <MoreVertical size={20} />
+                            </button>
+                        </div>
+                    </>
+                )}
+            </div>
+            
+            {showMenu && (
+                <div className="absolute top-16 left-4 z-50 bg-card border border-white/10 rounded-xl shadow-2xl p-2 w-48 animate-in fade-in zoom-in-95 duration-200">
+                    <div className="text-xs text-gray-500 font-bold px-3 py-2 flex items-center gap-2">
+                        <ArrowUpDown size={12} />
+                        ترتيب حسب
+                    </div>
+                    
+                    <button onClick={() => setSortBy('DATE')} className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-colors ${sortBy === 'DATE' ? 'bg-primary/20 text-primary' : 'text-gray-200 hover:bg-white/5'}`}>
+                        <div className="flex items-center gap-3">
+                            <Clock size={16} />
+                            <span>الأحدث (افتراضي)</span>
+                        </div>
+                        {sortBy === 'DATE' && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                    </button>
+
+                    <button onClick={() => setSortBy('FAVORITES')} className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-colors ${sortBy === 'FAVORITES' ? 'bg-primary/20 text-primary' : 'text-gray-200 hover:bg-white/5'}`}>
+                        <div className="flex items-center gap-3">
+                            <Star size={16} />
+                            <span>المفضلة أولاً</span>
+                        </div>
+                        {sortBy === 'FAVORITES' && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                    </button>
+
+                    <button onClick={() => setSortBy('PINNED')} className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-colors ${sortBy === 'PINNED' ? 'bg-primary/20 text-primary' : 'text-gray-200 hover:bg-white/5'}`}>
+                        <div className="flex items-center gap-3">
+                            <Pin size={16} />
+                            <span>المثبتة أولاً</span>
+                        </div>
+                        {sortBy === 'PINNED' && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                    </button>
+
+                    <div className="h-px bg-white/10 my-2" />
+                    <div className="text-xs text-gray-500 font-bold px-3 py-2">تصدير</div>
+                    <button onClick={(e) => handleExportPDF(e)} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 rounded-lg text-sm text-gray-200 text-right transition-colors">
+                        <FileDown size={16} className="text-blue-400" />
+                        مستند (PDF)
+                    </button>
+                    <button onClick={exportJSON} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 rounded-lg text-sm text-gray-200 text-right transition-colors">
+                        <FileJson size={16} className="text-yellow-400" />
+                        نسخة كاملة (JSON)
+                    </button>
+                    <button onClick={exportCSV} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 rounded-lg text-sm text-gray-200 text-right transition-colors">
+                        <FileSpreadsheet size={16} className="text-green-400" />
+                        جدول بيانات (CSV)
                     </button>
                 </div>
-            ) : (
-                <>
-                    <h2 className="text-xl font-bold text-white">شريط الذكريات</h2>
-                    <div className="flex items-center gap-3">
-                        <button onClick={() => setIsSearchOpen(true)} className="p-2 rounded-full hover:bg-white/10 text-gray-300 transition-colors">
-                             <Search size={20} />
-                        </button>
-                        <span className="text-xs text-gray-500 bg-white/5 px-2 py-1 rounded-md">{memories.length}+</span>
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
-                            className="p-2 rounded-full hover:bg-white/10 text-gray-300 transition-colors"
-                        >
-                            <MoreVertical size={20} />
-                        </button>
-                    </div>
-                </>
             )}
-          </div>
-          
-          {showMenu && (
-              <div className="absolute top-16 left-4 z-50 bg-card border border-white/10 rounded-xl shadow-2xl p-2 w-48 animate-in fade-in zoom-in-95 duration-200">
-                  <div className="text-xs text-gray-500 font-bold px-3 py-2 flex items-center gap-2">
-                     <ArrowUpDown size={12} />
-                     ترتيب حسب
-                  </div>
-                  
-                  <button onClick={() => setSortBy('DATE')} className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-colors ${sortBy === 'DATE' ? 'bg-primary/20 text-primary' : 'text-gray-200 hover:bg-white/5'}`}>
-                      <div className="flex items-center gap-3">
-                        <Clock size={16} />
-                        <span>الأحدث (افتراضي)</span>
-                      </div>
-                      {sortBy === 'DATE' && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
-                  </button>
 
-                  <button onClick={() => setSortBy('FAVORITES')} className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-colors ${sortBy === 'FAVORITES' ? 'bg-primary/20 text-primary' : 'text-gray-200 hover:bg-white/5'}`}>
-                      <div className="flex items-center gap-3">
-                        <Star size={16} />
-                        <span>المفضلة أولاً</span>
-                      </div>
-                      {sortBy === 'FAVORITES' && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
-                  </button>
+            <div className={`transition-all duration-300 overflow-hidden ${isSearchOpen ? 'h-0 opacity-0' : 'h-auto opacity-100'}`}>
+                <div className="w-full overflow-x-auto pb-2 pt-1 px-1 [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-white/20">
+                    <div className="flex items-center gap-2 min-w-max">
+                        {/* Status Filters Group */}
+                        <div className="flex items-center gap-2 shrink-0">
+                            <button 
+                                onClick={() => setShowPinnedOnly(!showPinnedOnly)}
+                                title="المثبتة"
+                                className={`flex items-center justify-center w-9 h-9 rounded-full transition-all border ${
+                                    showPinnedOnly 
+                                    ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.2)]' 
+                                    : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10'
+                                }`}
+                            >
+                                <Pin size={16} fill={showPinnedOnly ? "currentColor" : "none"} />
+                            </button>
 
-                  <button onClick={() => setSortBy('PINNED')} className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-colors ${sortBy === 'PINNED' ? 'bg-primary/20 text-primary' : 'text-gray-200 hover:bg-white/5'}`}>
-                      <div className="flex items-center gap-3">
-                        <Pin size={16} />
-                        <span>المثبتة أولاً</span>
-                      </div>
-                      {sortBy === 'PINNED' && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
-                  </button>
+                            <button 
+                                onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
+                                title="المفضلة"
+                                className={`flex items-center justify-center w-9 h-9 rounded-full transition-all border ${
+                                    showFavoritesOnly 
+                                    ? 'bg-yellow-500/10 border-yellow-500/50 text-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.2)]' 
+                                    : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10'
+                                }`}
+                            >
+                                <Star size={16} fill={showFavoritesOnly ? "currentColor" : "none"} />
+                            </button>
+                        </div>
 
-                  <div className="h-px bg-white/10 my-2" />
-                  <div className="text-xs text-gray-500 font-bold px-3 py-2">تصدير</div>
-                  <button onClick={(e) => handleExportPDF(e)} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 rounded-lg text-sm text-gray-200 text-right transition-colors">
-                      <FileDown size={16} className="text-blue-400" />
-                      مستند (PDF)
-                  </button>
-                  <button onClick={exportJSON} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 rounded-lg text-sm text-gray-200 text-right transition-colors">
-                      <FileJson size={16} className="text-yellow-400" />
-                      نسخة كاملة (JSON)
-                  </button>
-                  <button onClick={exportCSV} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 rounded-lg text-sm text-gray-200 text-right transition-colors">
-                      <FileSpreadsheet size={16} className="text-green-400" />
-                      جدول بيانات (CSV)
-                  </button>
-              </div>
-          )}
+                        <div className="w-px h-6 bg-white/10 mx-1 shrink-0" />
+                        
+                        {/* Type Filters Group */}
+                        <div className="flex items-center gap-2 shrink-0">
+                            <FilterButton type="ALL" label="الكل" icon={Filter} />
+                            <FilterButton type={MediaType.AUDIO} label="صوت" icon={Play} />
+                            <FilterButton type={MediaType.VIDEO} label="فيديو" icon={Video} />
+                            <FilterButton type={MediaType.IMAGE} label="صور" icon={Image} />
+                            <FilterButton type={MediaType.TEXT} label="نص" icon={FileText} />
+                        </div>
 
-          <div className={`transition-all duration-300 overflow-hidden ${isSearchOpen ? 'h-0 opacity-0' : 'h-auto opacity-100'}`}>
-             <div className="w-full overflow-x-auto pb-2 pt-1 px-1 [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-white/20">
-                <div className="flex items-center gap-2 min-w-max">
-                     {/* Status Filters Group */}
-                     <div className="flex items-center gap-2 shrink-0">
-                        <button 
-                            onClick={() => setShowPinnedOnly(!showPinnedOnly)}
-                            title="المثبتة"
-                            className={`flex items-center justify-center w-9 h-9 rounded-full transition-all border ${
-                                showPinnedOnly 
-                                ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.2)]' 
-                                : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10'
-                            }`}
+                        <div className="w-px h-6 bg-white/10 mx-1 shrink-0" />
+
+                        {/* Time Filters Group - Dropdown */}
+                        <div 
+                            className="relative flex items-center shrink-0"
+                            onMouseEnter={() => setShowTimeMenu(true)}
+                            onMouseLeave={() => setShowTimeMenu(false)}
                         >
-                            <Pin size={16} fill={showPinnedOnly ? "currentColor" : "none"} />
-                        </button>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setShowTimeMenu(!showTimeMenu); }}
+                                className={`flex items-center justify-center w-9 h-9 rounded-full transition-all duration-300 ${
+                                    timeFilter !== 'ALL'
+                                    ? 'bg-secondary text-white shadow-[0_0_15px_rgba(168,85,247,0.5)]' 
+                                    : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'
+                                }`}
+                                title="تصفية الوقت"
+                            >
+                                <Clock size={16} />
+                            </button>
 
-                        <button 
-                            onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
-                            title="المفضلة"
-                            className={`flex items-center justify-center w-9 h-9 rounded-full transition-all border ${
-                                showFavoritesOnly 
-                                ? 'bg-yellow-500/10 border-yellow-500/50 text-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.2)]' 
-                                : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10'
-                            }`}
-                        >
-                            <Star size={16} fill={showFavoritesOnly ? "currentColor" : "none"} />
-                        </button>
-                     </div>
-
-                    <div className="w-px h-6 bg-white/10 mx-1 shrink-0" />
-                    
-                    {/* Type Filters Group */}
-                    <div className="flex items-center gap-2 shrink-0">
-                        <FilterButton type="ALL" label="الكل" icon={Filter} />
-                        <FilterButton type={MediaType.AUDIO} label="صوت" icon={Play} />
-                        <FilterButton type={MediaType.VIDEO} label="فيديو" icon={Video} />
-                        <FilterButton type={MediaType.IMAGE} label="صور" icon={Image} />
-                        <FilterButton type={MediaType.TEXT} label="نص" icon={FileText} />
-                    </div>
-
-                    <div className="w-px h-6 bg-white/10 mx-1 shrink-0" />
-
-                    {/* Time Filters Group - Dropdown */}
-                    <div 
-                        className="relative flex items-center shrink-0"
-                        onMouseEnter={() => setShowTimeMenu(true)}
-                        onMouseLeave={() => setShowTimeMenu(false)}
-                    >
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); setShowTimeMenu(!showTimeMenu); }}
-                            className={`flex items-center justify-center w-9 h-9 rounded-full transition-all duration-300 ${
-                                timeFilter !== 'ALL'
-                                ? 'bg-secondary text-white shadow-[0_0_15px_rgba(168,85,247,0.5)]' 
-                                : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'
-                            }`}
-                            title="تصفية الوقت"
-                        >
-                            <Clock size={16} />
-                        </button>
-
-                        {/* Dropdown */}
-                        <div className={`absolute top-full left-0 mt-2 w-32 bg-card border border-white/10 rounded-xl shadow-xl overflow-hidden transition-all duration-200 z-50 ${showTimeMenu ? 'opacity-100 translate-y-0 visible' : 'opacity-0 -translate-y-2 invisible'}`}>
-                            <div className="flex flex-col p-1">
-                                {[
-                                    { type: 'ALL', label: 'كل الأوقات' },
-                                    { type: 'TODAY', label: 'اليوم' },
-                                    { type: 'WEEK', label: 'هذا الأسبوع' },
-                                    { type: 'MONTH', label: 'هذا الشهر' },
-                                    { type: 'YEAR', label: 'هذه السنة' },
-                                ].map((opt) => (
-                                    <button
-                                        key={opt.type}
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setTimeFilter(opt.type as any);
-                                            setShowTimeMenu(false);
-                                        }}
-                                        className={`w-full text-right px-3 py-2 text-xs font-medium transition-all rounded-lg ${
-                                            timeFilter === opt.type 
-                                            ? 'bg-secondary/20 text-secondary' 
-                                            : 'text-gray-400 hover:bg-white/5 hover:text-white'
-                                        }`}
-                                    >
-                                        {opt.label}
-                                    </button>
-                                ))}
+                            {/* Dropdown */}
+                            <div className={`absolute top-full left-0 mt-2 w-32 bg-card border border-white/10 rounded-xl shadow-xl overflow-hidden transition-all duration-200 z-50 ${showTimeMenu ? 'opacity-100 translate-y-0 visible' : 'opacity-0 -translate-y-2 invisible'}`}>
+                                <div className="flex flex-col p-1">
+                                    {[
+                                        { type: 'ALL', label: 'كل الأوقات' },
+                                        { type: 'TODAY', label: 'اليوم' },
+                                        { type: 'WEEK', label: 'هذا الأسبوع' },
+                                        { type: 'MONTH', label: 'هذا الشهر' },
+                                        { type: 'YEAR', label: 'هذه السنة' },
+                                    ].map((opt) => (
+                                        <button
+                                            key={opt.type}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setTimeFilter(opt.type as any);
+                                                setShowTimeMenu(false);
+                                            }}
+                                            className={`w-full text-right px-3 py-2 text-xs font-medium transition-all rounded-lg ${
+                                                timeFilter === opt.type 
+                                                ? 'bg-secondary/20 text-secondary' 
+                                                : 'text-gray-400 hover:bg-white/5 hover:text-white'
+                                            }`}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-             </div>
-          </div>
-      </div>
-      
-      {/* List */}
-      <div className="flex-1 overflow-y-auto p-4 pb-24 space-y-4">
-        {loading && memories.length === 0 ? (
-           <div className="flex flex-col items-center justify-center py-20 gap-4">
-              <Loader2 className="animate-spin text-primary" size={32} />
-              <p className="text-gray-500 text-sm">جاري تحميل الذكريات...</p>
-           </div>
-        ) : memories.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-gray-500 opacity-60">
-                <Search size={48} className="mb-4 stroke-1" />
-                <p>{searchQuery ? 'لا توجد نتائج مطابقة لبحثك.' : 'لا توجد ذكريات في هذا التصنيف.'}</p>
-                {(filterType !== 'ALL' || timeFilter !== 'ALL' || searchQuery || showFavoritesOnly || showPinnedOnly) && (
-                    <button 
-                        onClick={() => { setFilterType('ALL'); setTimeFilter('ALL'); setSearchQuery(''); setIsSearchOpen(false); setShowFavoritesOnly(false); setShowPinnedOnly(false); }}
-                        className="mt-4 text-xs text-primary hover:underline"
-                    >
-                        مسح الفلاتر والبحث
-                    </button>
-                )}
             </div>
-        ) : (
-            <>
-                {memories.map((mem: DisplayMemory) => (
-                    <MemoryCard 
-                        key={mem.id}
-                        id={`memory-card-${mem.id}`}
-                        memory={mem}
-                        isPlaying={playingId === mem.id}
-                        onTogglePlay={togglePlay}
-                        onToggleFavorite={handleToggleFavorite}
-                        onTogglePin={handleTogglePin}
-                        onDelete={handleDelete}
-                        onSetReminder={openReminderModal}
-                        onExportPDF={handleExportPDF}
-                        isHighlighted={highlightedMemoryId === mem.id}
-                    />
-                ))}
-                
-                {/* Infinite Scroll Trigger & Loader */}
-                <div ref={observerTarget} className="h-20 flex items-center justify-center">
-                    {loadingMore && <Loader2 className="animate-spin text-gray-500" size={24} />}
-                    {!hasMore && memories.length > 5 && (
-                        <span className="text-xs text-gray-600">وصلت لنهاية الذكريات</span>
+        </div>
+        
+        {/* List */}
+        <div className="flex-1 overflow-y-auto p-4 pb-24 space-y-4">
+            {loading && memories.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-4">
+                <Loader2 className="animate-spin text-primary" size={32} />
+                <p className="text-gray-500 text-sm">جاري تحميل الذكريات...</p>
+            </div>
+            ) : memories.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-gray-500 opacity-60">
+                    <Search size={48} className="mb-4 stroke-1" />
+                    <p>{searchQuery ? 'لا توجد نتائج مطابقة لبحثك.' : 'لا توجد ذكريات في هذا التصنيف.'}</p>
+                    {(filterType !== 'ALL' || timeFilter !== 'ALL' || searchQuery || showFavoritesOnly || showPinnedOnly) && (
+                        <button 
+                            onClick={() => { setFilterType('ALL'); setTimeFilter('ALL'); setSearchQuery(''); setIsSearchOpen(false); setShowFavoritesOnly(false); setShowPinnedOnly(false); }}
+                            className="mt-4 text-xs text-primary hover:underline"
+                        >
+                            مسح الفلاتر والبحث
+                        </button>
                     )}
                 </div>
-            </>
-        )}
+            ) : (
+                <>
+                    {memories.map((mem: DisplayMemory) => (
+                        <MemoryCard 
+                            key={mem.id}
+                            id={`memory-card-${mem.id}`}
+                            memory={mem}
+                            isPlaying={playingId === mem.id}
+                            onTogglePlay={togglePlay}
+                            onToggleFavorite={handleToggleFavorite}
+                            onTogglePin={handleTogglePin}
+                            onDelete={handleDelete}
+                            onSetReminder={openReminderModal}
+                            onExportPDF={handleExportPDF}
+                            onReAnalyze={handleReAnalyze}
+                            isHighlighted={highlightedMemoryId === mem.id}
+                        />
+                    ))}
+                    
+                    {/* Infinite Scroll Trigger & Loader */}
+                    <div ref={observerTarget} className="h-20 flex items-center justify-center">
+                        {loadingMore && <Loader2 className="animate-spin text-gray-500" size={24} />}
+                        {!hasMore && memories.length > 5 && (
+                            <span className="text-xs text-gray-600">وصلت لنهاية الذكريات</span>
+                        )}
+                    </div>
+                </>
+            )}
+        </div>
       </div>
 
        {/* Shared Reminder Modal */}
        {reminderModalOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={() => setReminderModalOpen(false)}>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200 print:hidden" onClick={() => setReminderModalOpen(false)}>
                 <div className="bg-card w-full max-w-sm rounded-2xl border border-white/10 shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
                     <div className="p-4 border-b border-white/10 flex justify-between items-center">
                         <h3 className="font-bold text-white flex items-center gap-2">
@@ -1015,6 +1087,7 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
         )}
 
         {/* --- PRINT TEMPLATE (Visible only on print) --- */}
+        {/* We place this OUTSIDE the 'print:hidden' wrapper above */}
         {printableMemories && (
             <div id="print-container" className="hidden print:block fixed inset-0 bg-white z-[9999] overflow-visible">
                 {/* Print Header */}
@@ -1087,7 +1160,7 @@ export const MemoriesView: React.FC<MemoriesViewProps> = ({ highlightedMemoryId 
 
         {/* Export Progress Modal */}
         {isExporting && (
-             <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+             <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200 print:hidden">
                  <div className="bg-card w-full max-w-xs p-6 rounded-2xl border border-white/10 shadow-2xl text-center space-y-5">
                      <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mx-auto text-primary shadow-[0_0_15px_rgba(99,102,241,0.3)]">
                          <FileDown size={32} className="animate-bounce" />

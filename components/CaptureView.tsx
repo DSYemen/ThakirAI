@@ -209,32 +209,64 @@ export const CaptureView: React.FC = () => {
       setStatus("processing");
       try {
         const base64 = await blobToBase64(blob);
-        const analysis = await analyzeMedia(type, base64, inputText);
+        const id = crypto.randomUUID();
 
-        let finalReminder = activeReminder;
-        // Auto-detect reminder logic
-        if (!finalReminder && analysis.detectedReminder) {
-            finalReminder = {
-                timestamp: new Date(analysis.detectedReminder.isoTimestamp).getTime(),
-                frequency: analysis.detectedReminder.frequency
-            };
-            setAutoReminderDetected(true);
-        }
-
+        // 1. Optimistic Save: Save immediately with pending status
         const memory: MemoryItem = {
-            id: crypto.randomUUID(),
+            id,
             type,
             content: base64,
             createdAt: Date.now(),
-            transcription: analysis.transcription,
-            summary: analysis.summary,
-            tags: analysis.tags,
+            transcription: "", // Empty initially
+            summary: "جاري المعالجة والتحليل...",
+            tags: [],
             metadata: { mimeType },
-            reminder: finalReminder
+            reminder: activeReminder, // If user manually set a reminder, use it
+            analysisStatus: 'PENDING',
+            isFavorite: false,
+            isPinned: false
         };
 
         await saveMemory(memory);
-        resetForm();
+        resetForm(); // Clear UI immediately for user
+
+        // 2. Background Analysis
+        analyzeMedia(type, base64, inputText).then(async (analysis) => {
+            let finalReminder = activeReminder;
+            // Only auto-detect if no manual reminder was set
+            if (!finalReminder && analysis.detectedReminder) {
+                finalReminder = {
+                    timestamp: new Date(analysis.detectedReminder.isoTimestamp).getTime(),
+                    frequency: analysis.detectedReminder.frequency
+                };
+                setAutoReminderDetected(true);
+            }
+
+            const updatedMemory: MemoryItem = {
+                ...memory,
+                transcription: analysis.transcription,
+                summary: analysis.summary,
+                tags: analysis.tags,
+                reminder: finalReminder,
+                analysisStatus: 'COMPLETED'
+            };
+
+            await saveMemory(updatedMemory);
+            
+            // If the user is still on this screen and we detected a reminder, show the notification
+            if (finalReminder && !activeReminder) {
+                setTimeout(() => setAutoReminderDetected(false), 5000);
+            }
+        }).catch(async (err) => {
+            console.error("Background analysis failed", err);
+            const failedMemory: MemoryItem = {
+                ...memory,
+                summary: "فشل التحليل الذكي",
+                analysisStatus: 'FAILED'
+            };
+            await saveMemory(failedMemory);
+        });
+
       } catch (error) {
           console.error(error);
           setStatus("error");
@@ -250,31 +282,55 @@ export const CaptureView: React.FC = () => {
   const executeTextSave = async () => {
     if (!inputText.trim()) return;
     setStatus("processing");
-    const analysis = await analyzeMedia(MediaType.TEXT, "", inputText);
     
-    let finalReminder = activeReminder;
-    // Auto-detect reminder logic
-    if (!finalReminder && analysis.detectedReminder) {
-        finalReminder = {
-            timestamp: new Date(analysis.detectedReminder.isoTimestamp).getTime(),
-            frequency: analysis.detectedReminder.frequency
-        };
-        setAutoReminderDetected(true);
-    }
-
+    const id = crypto.randomUUID();
+    
+    // 1. Optimistic Save
     const memory: MemoryItem = {
-        id: crypto.randomUUID(),
+        id,
         type: MediaType.TEXT,
         content: inputText,
         createdAt: Date.now(),
         transcription: inputText,
-        summary: analysis.summary,
-        tags: analysis.tags,
-        reminder: finalReminder
+        summary: "جاري المعالجة...",
+        tags: [],
+        reminder: activeReminder,
+        analysisStatus: 'PENDING',
+        isFavorite: false,
+        isPinned: false
     };
 
     await saveMemory(memory);
     resetForm();
+
+    // 2. Background Analysis
+    analyzeMedia(MediaType.TEXT, "", inputText).then(async (analysis) => {
+        let finalReminder = activeReminder;
+        if (!finalReminder && analysis.detectedReminder) {
+            finalReminder = {
+                timestamp: new Date(analysis.detectedReminder.isoTimestamp).getTime(),
+                frequency: analysis.detectedReminder.frequency
+            };
+            setAutoReminderDetected(true);
+        }
+
+        const updatedMemory: MemoryItem = {
+            ...memory,
+            summary: analysis.summary,
+            tags: analysis.tags,
+            reminder: finalReminder,
+            analysisStatus: 'COMPLETED'
+        };
+
+        await saveMemory(updatedMemory);
+    }).catch(async (err) => {
+         const failedMemory: MemoryItem = {
+                ...memory,
+                summary: "فشل التحليل الذكي",
+                analysisStatus: 'FAILED'
+            };
+        await saveMemory(failedMemory);
+    });
   };
 
   const confirmSave = async () => {
@@ -362,7 +418,7 @@ export const CaptureView: React.FC = () => {
              {status === 'processing' && (
                  <div className="bg-black/50 backdrop-blur px-3 py-1 rounded-full flex items-center gap-2 text-xs text-secondary">
                      <Loader2 size={12} className="animate-spin" />
-                     <span>جاري المعالجة والتحليل...</span>
+                     <span>جاري الحفظ...</span>
                  </div>
              )}
              {status === 'saved' && (
@@ -564,7 +620,7 @@ export const CaptureView: React.FC = () => {
                                      }}
                                      className="w-full flex items-center justify-center gap-2 text-xs text-blue-400 hover:underline"
                                  >
-                                     <CalendarDays size={14} />
+                                    <CalendarDays size={14} />
                                      إضافة إلى تقويم الهاتف (Google Calendar)
                                  </button>
                              </div>
