@@ -19,6 +19,7 @@ export const CaptureView: React.FC = () => {
   const [status, setStatus] = useState<string>(""); 
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [autoReminderDetected, setAutoReminderDetected] = useState<boolean>(false);
+  const [isListening, setIsListening] = useState(false); // For Text Mode Voice Input
   
   // Device Error State
   const [deviceError, setDeviceError] = useState<{ type: 'CAMERA' | 'MIC', message: string } | null>(null);
@@ -153,6 +154,32 @@ export const CaptureView: React.FC = () => {
           mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop());
       }
     }
+  };
+
+  const handleVoiceInput = () => {
+    if (isListening) return;
+
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        alert("المتصفح لا يدعم الكتابة بالصوت");
+        return;
+    }
+
+    const settings = getSettings();
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = settings.language || 'ar-SA';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript) {
+            setInputText(prev => prev ? prev + ' ' + transcript : transcript);
+        }
+    };
+    recognition.start();
   };
 
   const captureImage = () => {
@@ -338,9 +365,9 @@ export const CaptureView: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-dark relative overflow-hidden">
         
-        {/* Unified Header */}
+        {/* Unified Header - Standardized Fonts */}
         <div className={`sticky top-0 z-30 px-4 py-3 flex justify-between items-center border-b transition-colors duration-300 ${isCameraMode ? 'bg-black/20 border-white/10 backdrop-blur-sm text-white' : 'bg-white/80 dark:bg-slate-900/80 border-gray-200 dark:border-white/5 backdrop-blur-md text-foreground'}`}>
-             <h2 className="text-xl font-bold">
+             <h2 className="text-lg font-bold">
                  {mode === 'AUDIO' && 'تسجيل صوتي'}
                  {mode === 'VIDEO' && 'تسجيل فيديو'}
                  {mode === 'IMAGE' && 'التقاط صورة'}
@@ -378,7 +405,7 @@ export const CaptureView: React.FC = () => {
                          </div>
                          <h3 className="text-lg font-bold text-white mb-2">تعذر الوصول للكاميرا</h3>
                          <p className="text-gray-400 text-sm mb-6 leading-relaxed max-w-xs">{deviceError.message}</p>
-                         <button onClick={startCamera} className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg text-sm transition-colors">
+                         <button onClick={startCamera} className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors">
                              <RefreshCw size={14} /> إعادة المحاولة
                          </button>
                      </div>
@@ -404,7 +431,7 @@ export const CaptureView: React.FC = () => {
                             </div>
                             <h3 className="text-lg font-bold text-foreground mb-2">تعذر الوصول للميكروفون</h3>
                             <div className="flex gap-3">
-                                <button onClick={startRecording} className="flex items-center gap-2 bg-gray-200 dark:bg-white/10 text-foreground px-4 py-2 rounded-lg text-sm transition-colors">
+                                <button onClick={startRecording} className="flex items-center gap-2 bg-gray-200 dark:bg-white/10 text-foreground px-4 py-2 rounded-lg text-xs font-bold transition-colors">
                                     <RefreshCw size={14} /> إعادة المحاولة
                                 </button>
                             </div>
@@ -416,9 +443,9 @@ export const CaptureView: React.FC = () => {
                                 <Mic size={64} className="text-primary dark:text-primary/80" />
                             </div>
                             {isRecording ? (
-                                <p className="text-center mt-8 text-primary font-mono animate-pulse font-bold">جاري التسجيل...</p>
+                                <p className="text-center mt-8 text-primary font-mono animate-pulse font-bold text-sm">جاري التسجيل...</p>
                             ) : (
-                                <p className="text-center mt-8 text-gray-400 text-sm">اضغط على الزر أدناه لبدء التسجيل</p>
+                                <p className="text-center mt-8 text-gray-400 text-xs font-medium">اضغط على الزر أدناه لبدء التسجيل</p>
                             )}
                         </>
                     )}
@@ -426,19 +453,26 @@ export const CaptureView: React.FC = () => {
             )}
 
             {mode === 'TEXT' && (
-                <div className="w-full h-full max-h-[400px] flex flex-col">
+                <div className="w-full h-full max-h-[400px] flex flex-col relative">
                     <textarea
                         value={inputText}
                         onChange={(e) => setInputText(e.target.value)}
-                        placeholder="بماذا تفكر الآن؟ (مثال: ذكرني بموعد الطبيب غداً)"
-                        className="w-full flex-1 bg-white dark:bg-card border border-gray-200 dark:border-white/5 rounded-2xl p-6 text-lg leading-relaxed text-right focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 resize-none shadow-sm placeholder:text-gray-400 text-foreground transition-all"
+                        placeholder={isListening ? "جاري الاستماع..." : "بماذا تفكر الآن؟ (مثال: ذكرني بموعد الطبيب غداً)"}
+                        className={`w-full flex-1 bg-white dark:bg-card border border-gray-200 dark:border-white/5 rounded-2xl p-6 text-sm leading-relaxed text-right focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 resize-none shadow-sm placeholder:text-gray-400 text-foreground transition-all ${isListening ? 'border-red-500/30' : ''}`}
                     />
+                    {/* Voice Input Button Inside Text Area */}
+                    <button 
+                        onClick={handleVoiceInput}
+                        className={`absolute bottom-4 left-4 p-3 rounded-full shadow-md transition-all z-20 ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-100 dark:bg-white/10 text-gray-500 hover:text-primary'}`}
+                    >
+                        {isListening ? <MicOff size={20} /> : <Mic size={20} />}
+                    </button>
                 </div>
             )}
         </div>
 
-        {/* Bottom Controls */}
-        <div className={`relative z-20 pb-24 pt-6 rounded-t-3xl border-t border-white/10 ${isCameraMode ? 'bg-black/80 backdrop-blur-xl border-white/10' : 'bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-gray-200 dark:border-white/5 shadow-[0_-5px_20px_rgba(0,0,0,0.05)]'}`}>
+        {/* Bottom Controls - Lifted Higher */}
+        <div className={`relative z-20 pb-32 pt-6 rounded-t-3xl border-t border-white/10 ${isCameraMode ? 'bg-black/80 backdrop-blur-xl border-white/10' : 'bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-gray-200 dark:border-white/5 shadow-[0_-5px_20px_rgba(0,0,0,0.05)]'}`}>
             
             {/* Mode Selector */}
             <div className="flex justify-center gap-6 mb-8">
@@ -466,7 +500,7 @@ export const CaptureView: React.FC = () => {
                      <button 
                         onClick={openTextConfirmation}
                         disabled={!inputText.trim()}
-                        className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-4 rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100 flex items-center justify-center gap-2"
+                        className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-4 rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100 flex items-center justify-center gap-2 text-sm"
                      >
                         <Check size={20} />
                         حفظ الملاحظة
@@ -481,7 +515,7 @@ export const CaptureView: React.FC = () => {
                                 else startRecording();
                             }}
                             disabled={!!deviceError}
-                            className={`w-20 h-20 rounded-full flex items-center justify-center border-4 border-white dark:border-white/20 transition-all duration-300 shadow-2xl ${
+                            className={`w-20 h-20 rounded-full flex items-center justify-center border-4 border-white dark:border-white/20 transition-all duration-300 shadow-2xl transform active:scale-95 ${
                                 !!deviceError ? 'bg-gray-500 opacity-50 cursor-not-allowed' :
                                 isRecording ? 'bg-red-500 scale-110' : mode === 'IMAGE' ? 'bg-white text-dark' : 'bg-gradient-to-r from-primary to-secondary text-white'
                             }`}
@@ -493,12 +527,12 @@ export const CaptureView: React.FC = () => {
             </div>
         </div>
 
-        {/* Reminder Modal */}
+        {/* Reminder Modal - Standardized Fonts */}
         {showReminderModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                 <div className="bg-white dark:bg-card w-full max-w-sm rounded-2xl border border-gray-200 dark:border-white/10 shadow-2xl overflow-hidden">
                     <div className="p-4 border-b border-gray-100 dark:border-white/10 flex justify-between items-center bg-gray-50 dark:bg-black/20">
-                        <h3 className="font-bold text-foreground flex items-center gap-2">
+                        <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
                             <Calendar size={18} className="text-secondary" />
                             تذكير بالذكرى
                         </h3>
@@ -509,14 +543,14 @@ export const CaptureView: React.FC = () => {
                     <div className="p-6 space-y-6">
                         <div className="space-y-2">
                             <label className="text-xs font-bold text-gray-500 uppercase">التاريخ والوقت</label>
-                            <input type="datetime-local" value={reminderDate} onChange={(e) => setReminderDate(e.target.value)} className="w-full bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-foreground focus:border-primary focus:outline-none" />
+                            <input type="datetime-local" value={reminderDate} onChange={(e) => setReminderDate(e.target.value)} className="w-full bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-sm text-foreground focus:border-primary focus:outline-none" />
                         </div>
                         <div className="space-y-2">
                             <label className="text-xs font-bold text-gray-500 uppercase">نمط التكرار</label>
                             <div className="flex flex-col gap-3">
                                 <div className="grid grid-cols-3 gap-2">
                                     {freqOptions.map((opt) => (
-                                        <button key={opt.val} onClick={() => setReminderFreq(opt.val)} className={`text-xs py-2 rounded-lg border transition-all ${reminderFreq === opt.val ? 'bg-secondary/10 border-secondary text-secondary font-bold' : 'bg-gray-50 dark:bg-white/5 border-transparent text-gray-500 hover:bg-gray-100 dark:hover:bg-white/10'}`}>
+                                        <button key={opt.val} onClick={() => setReminderFreq(opt.val)} className={`text-[10px] py-2 rounded-lg border transition-all ${reminderFreq === opt.val ? 'bg-secondary/10 border-secondary text-secondary font-bold' : 'bg-gray-50 dark:bg-white/5 border-transparent text-gray-500 hover:bg-gray-100 dark:hover:bg-white/10'}`}>
                                             {opt.label}
                                         </button>
                                     ))}
@@ -543,13 +577,13 @@ export const CaptureView: React.FC = () => {
                                 )}
                             </div>
                         </div>
-                        <button onClick={saveReminder} className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-3 rounded-xl transition-colors">تأكيد التذكير</button>
+                        <button onClick={saveReminder} className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-3 rounded-xl transition-colors text-xs">تأكيد التذكير</button>
                     </div>
                 </div>
             </div>
         )}
 
-        {/* Confirmation Modal */}
+        {/* Confirmation Modal - Standardized Fonts */}
         {showConfirmModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                 <div className="bg-white dark:bg-card w-full max-w-sm rounded-2xl border border-gray-200 dark:border-white/10 shadow-2xl overflow-hidden p-6 text-center space-y-6">
@@ -558,7 +592,7 @@ export const CaptureView: React.FC = () => {
                     </div>
                     
                     <div className="space-y-2">
-                        <h3 className="text-xl font-bold text-foreground">تأكيد الحفظ</h3>
+                        <h3 className="text-lg font-bold text-foreground">تأكيد الحفظ</h3>
                         <p className="text-gray-500 text-sm">هل تريد حفظ هذا المحتوى وتحليله؟</p>
                     </div>
 
@@ -568,14 +602,14 @@ export const CaptureView: React.FC = () => {
                          </div>
                     )}
 
-                    <button onClick={() => setShowReminderModal(true)} className={`w-full py-3 rounded-xl font-medium transition-colors border flex items-center justify-center gap-2 ${activeReminder ? 'bg-secondary/10 text-secondary border-secondary/50' : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-300'}`}>
+                    <button onClick={() => setShowReminderModal(true)} className={`w-full py-3 rounded-xl font-medium text-xs transition-colors border flex items-center justify-center gap-2 ${activeReminder ? 'bg-secondary/10 text-secondary border-secondary/50' : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-300'}`}>
                         <Bell size={16} fill={activeReminder ? "currentColor" : "none"} className={activeReminder ? "animate-pulse" : ""} />
                         {activeReminder ? 'تم ضبط التذكير' : 'إضافة تذكير'}
                     </button>
 
                     <div className="grid grid-cols-2 gap-3">
-                        <button onClick={cancelSave} className="py-3 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 font-medium transition-colors">إلغاء</button>
-                        <button onClick={confirmSave} className="py-3 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold transition-colors shadow-lg shadow-primary/20">حفظ ومتابعة</button>
+                        <button onClick={cancelSave} className="py-3 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 font-bold text-xs transition-colors">إلغاء</button>
+                        <button onClick={confirmSave} className="py-3 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold text-xs transition-colors shadow-lg shadow-primary/20">حفظ ومتابعة</button>
                     </div>
                 </div>
             </div>

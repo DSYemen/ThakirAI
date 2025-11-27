@@ -80,7 +80,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ item, isOverdue = false, onComplete
             
             <div className="flex-1 min-w-0">
                 <div className="flex justify-between items-start">
-                    <h4 className={`text-base font-bold leading-tight ${styles.text}`}>
+                    <h4 className={`text-sm font-bold leading-tight ${styles.text}`}>
                         {item.summary || "تذكير بدون عنوان"}
                     </h4>
                     
@@ -102,7 +102,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ item, isOverdue = false, onComplete
                 </div>
 
                 <div className="flex items-center gap-2 mt-2 flex-wrap">
-                    <span className={`text-xs font-mono font-bold flex items-center gap-1.5 px-2 py-1 rounded-md ${isOverdue ? 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-300' : 'bg-white/50 dark:bg-black/20 text-gray-600 dark:text-gray-300'}`}>
+                    <span className={`text-[10px] font-mono font-bold flex items-center gap-1.5 px-2 py-1 rounded-md ${isOverdue ? 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-300' : 'bg-white/50 dark:bg-black/20 text-gray-600 dark:text-gray-300'}`}>
                         <Clock size={12} />
                         {formatTime(item.reminder!.timestamp)}
                     </span>
@@ -153,6 +153,7 @@ export const ScheduleView: React.FC = () => {
   const [taskToCategorize, setTaskToCategorize] = useState<MemoryItem | null>(null);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [pendingCategory, setPendingCategory] = useState<TaskCategory | null>(null);
+  const [isListeningCat, setIsListeningCat] = useState(false);
 
   // Add/Edit Task Modal
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -260,6 +261,23 @@ export const ScheduleView: React.FC = () => {
         const transcript = event.results[0][0].transcript;
         if (transcript) {
             setTaskSummary(prev => prev ? prev + ' ' + transcript : transcript);
+        }
+    };
+    recognition.start();
+  };
+
+    const handleVoiceInputCat = () => {
+    if (isListeningCat) return;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+    const recognition = new SpeechRecognition();
+    recognition.lang = language;
+    recognition.onstart = () => setIsListeningCat(true);
+    recognition.onend = () => setIsListeningCat(false);
+    recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript && pendingCategory) {
+            setPendingCategory({...pendingCategory, label: transcript});
         }
     };
     recognition.start();
@@ -390,11 +408,11 @@ export const ScheduleView: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-dark relative">
-      {/* Unified Header */}
+      {/* Unified Header - Standardized */}
       <div className="sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-200 dark:border-white/5 pt-4 px-4 pb-2 shadow-sm space-y-3">
            <div className="flex justify-between items-center h-10">
                 <div>
-                    <h2 className="text-xl font-bold text-foreground">مواعيدي</h2>
+                    <h2 className="text-lg font-bold text-foreground">مواعيدي</h2>
                     <p className="text-xs text-gray-500">{new Date().toLocaleDateString(language, { timeZone: timeZone, weekday: 'long', day: 'numeric', month: 'long' })}</p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -511,7 +529,7 @@ export const ScheduleView: React.FC = () => {
         )}
       </div>
 
-      {/* Complete Task Modal */}
+      {/* Complete Task Modal - Standardized Fonts */}
       {showCompleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="bg-white dark:bg-card w-full max-w-sm rounded-2xl border border-gray-200 dark:border-white/10 shadow-2xl overflow-hidden p-5">
@@ -541,14 +559,14 @@ export const ScheduleView: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                    <button onClick={() => setShowCompleteModal(false)} className="py-3 rounded-xl bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300 font-bold text-sm">إلغاء</button>
-                    <button onClick={confirmComplete} className="py-3 rounded-xl bg-green-500 text-white font-bold text-sm shadow-lg shadow-green-500/20">تأكيد</button>
+                    <button onClick={() => setShowCompleteModal(false)} className="py-3 rounded-xl bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300 font-bold text-xs transition-colors">إلغاء</button>
+                    <button onClick={confirmComplete} className="py-3 rounded-xl bg-green-500 text-white font-bold text-xs shadow-lg shadow-green-500/20 transition-colors">تأكيد</button>
                 </div>
             </div>
         </div>
       )}
 
-      {/* Add/Edit Task Modal */}
+      {/* Add/Edit Task Modal - Standardized Fonts */}
       {showTaskModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="bg-white dark:bg-card w-full max-w-sm rounded-2xl border border-gray-200 dark:border-white/10 shadow-2xl overflow-hidden p-5">
@@ -637,8 +655,8 @@ export const ScheduleView: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 mt-6">
-                    <button onClick={() => setShowTaskModal(false)} className="py-3 rounded-xl bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300 font-bold text-sm">إلغاء</button>
-                    <button onClick={handleSaveTask} disabled={!taskSummary.trim() || !taskDate} className="py-3 rounded-xl bg-primary text-white font-bold text-sm shadow-lg shadow-primary/20 disabled:opacity-50">
+                    <button onClick={() => setShowTaskModal(false)} className="py-3 rounded-xl bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300 font-bold text-xs transition-colors">إلغاء</button>
+                    <button onClick={handleSaveTask} disabled={!taskSummary.trim() || !taskDate} className="py-3 rounded-xl bg-primary text-white font-bold text-xs shadow-lg shadow-primary/20 disabled:opacity-50 transition-colors">
                         {editingTask ? 'حفظ التعديلات' : 'إضافة'}
                     </button>
                 </div>
@@ -646,7 +664,7 @@ export const ScheduleView: React.FC = () => {
         </div>
       )}
 
-      {/* Category Selection Modal */}
+      {/* Category Selection Modal - Standardized Fonts */}
       {showCategoryModal && pendingCategory && (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:p-4 animate-in fade-in duration-200">
               <div className="bg-white dark:bg-card w-full sm:max-w-sm sm:rounded-2xl rounded-t-3xl border-t sm:border border-gray-200 dark:border-white/10 shadow-2xl overflow-hidden p-6 animate-in slide-in-from-bottom-10 duration-300">
@@ -661,13 +679,21 @@ export const ScheduleView: React.FC = () => {
                     <div className="space-y-4">
                         <div>
                             <label className="text-xs font-bold text-gray-500 mb-2 block">اسم التصنيف</label>
-                            <input 
-                                type="text" 
-                                value={pendingCategory.label} 
-                                onChange={(e) => setPendingCategory({...pendingCategory, label: e.target.value})}
-                                placeholder="مثال: طبيب، اجتماع، تسوق..."
-                                className="w-full bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-sm text-foreground focus:border-primary focus:outline-none mb-3"
-                            />
+                            <div className="relative">
+                                <input 
+                                    type="text" 
+                                    value={pendingCategory.label} 
+                                    onChange={(e) => setPendingCategory({...pendingCategory, label: e.target.value})}
+                                    placeholder="مثال: طبيب، اجتماع، تسوق..."
+                                    className="w-full bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-xl p-3 pl-10 text-sm text-foreground focus:border-primary focus:outline-none mb-3"
+                                />
+                                <button 
+                                    onClick={handleVoiceInputCat}
+                                    className={`absolute left-2 top-2 p-1.5 rounded-lg ${isListeningCat ? 'text-red-500 animate-pulse' : 'text-gray-400 hover:text-primary'}`}
+                                >
+                                    {isListeningCat ? <MicOff size={16} /> : <Mic size={16} />}
+                                </button>
+                            </div>
                         </div>
 
                         <div>
@@ -683,7 +709,6 @@ export const ScheduleView: React.FC = () => {
                                                 ...pendingCategory, 
                                                 id: cat.id, 
                                                 iconName: cat.iconName,
-                                                // Only update label if it matches a generic preset name to avoid overwriting custom names
                                                 label: PRESET_CATEGORIES.some(p => p.label === pendingCategory.label) ? cat.label : pendingCategory.label
                                             })}
                                             className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${isSelectedIcon ? `ring-2 ring-primary border-transparent bg-primary/5` : 'bg-gray-50 dark:bg-white/5 border-transparent hover:bg-gray-100 dark:hover:bg-white/10'}`}
@@ -726,7 +751,7 @@ export const ScheduleView: React.FC = () => {
                             </div>
                         </div>
 
-                        <button onClick={saveCategory} className="w-full bg-primary text-white font-bold py-3 rounded-xl mt-2">حفظ التغييرات</button>
+                        <button onClick={saveCategory} className="w-full bg-primary text-white font-bold py-3 rounded-xl mt-2 text-xs transition-colors">حفظ التغييرات</button>
                     </div>
               </div>
           </div>

@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Navigation } from './components/Navigation';
+import { TopBar } from './components/TopBar';
 import { CaptureView } from './components/CaptureView';
 import { MemoriesView } from './components/MemoriesView';
 import { SearchView } from './components/SearchView';
@@ -59,6 +60,10 @@ function App() {
   return (
     <div className="bg-dark min-h-[100dvh] text-foreground font-sans overflow-hidden transition-colors duration-300">
       <main className="h-[100dvh] w-full max-w-md mx-auto relative bg-dark shadow-2xl overflow-hidden flex flex-col">
+           
+           {/* Global Top Bar */}
+           <TopBar />
+
            <div className="flex-1 overflow-hidden relative">
               {renderView()}
            </div>

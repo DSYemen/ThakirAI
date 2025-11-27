@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Moon, Sun, Key, Save, Database, Upload, Download, Smartphone, Check, AlertCircle, Loader2, RefreshCw, FolderOpen, ToggleLeft, ToggleRight, Settings, Globe, Languages, Calendar, ChevronLeft, Search, X } from 'lucide-react';
+import { Moon, Sun, Key, Save, Database, Upload, Download, Smartphone, Check, AlertCircle, Loader2, RefreshCw, FolderOpen, ToggleLeft, ToggleRight, Settings, Globe, Languages, Calendar, ChevronLeft, Search, X, Mic, MicOff } from 'lucide-react';
 import { AppSettings } from '../types';
 import { getSettings, saveSettings } from '../services/settingsService';
 import { exportDatabase, importDatabase } from '../services/db';
@@ -83,7 +83,8 @@ export const SettingsView: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [availableTimeZones, setAvailableTimeZones] = useState<string[]>([]);
-  
+  const [isListeningFolder, setIsListeningFolder] = useState(false);
+
   // Selection Modal State
   const [activeModal, setActiveModal] = useState<'TIMEZONE' | 'LANGUAGE' | null>(null);
 
@@ -137,12 +138,27 @@ export const SettingsView: React.FC = () => {
   };
   const handleExportMedia = async () => { if (!confirm("سيتم التصدير لمجلد المستندات. متابعة؟")) return; setIsProcessing(true); setProgress(0); try { const msg = await saveMediaToDownloads((c, t) => setProgress(Math.round((c / t) * 100))); showStatus('success', msg); } catch (e: any) { showStatus('error', e.message); } finally { setIsProcessing(false); setProgress(0); } };
 
+  const handleVoiceInputFolder = () => {
+    if (isListeningFolder) return;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return alert("غير مدعوم");
+    const rec = new SpeechRecognition();
+    rec.lang = settings.language || 'en-US';
+    rec.onstart = () => setIsListeningFolder(true);
+    rec.onend = () => setIsListeningFolder(false);
+    rec.onresult = (e: any) => {
+        const t = e.results[0][0].transcript;
+        if (t) setSettings({...settings, customMediaFolder: t.replace(/\s+/g, '_')});
+    };
+    rec.start();
+  };
+
   return (
     <div className="flex flex-col h-full bg-dark overflow-y-auto pb-24 relative">
       {/* Unified Header */}
       <div className="sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-200 dark:border-white/5 p-4 shadow-sm">
            <div className="flex justify-between items-center">
-                <h2 className="text-xl font-bold text-foreground">الإعدادات</h2>
+                <h2 className="text-lg font-bold text-foreground">الإعدادات</h2>
                 <div className="p-2 bg-blue-500/10 rounded-xl text-blue-500">
                     <Settings size={20} />
                 </div>
@@ -161,8 +177,8 @@ export const SettingsView: React.FC = () => {
         <div className="space-y-3">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider px-1">المظهر</h3>
             <div className="bg-white dark:bg-card border border-gray-200 dark:border-white/5 rounded-2xl p-2 flex shadow-sm">
-                <button onClick={() => settings.theme !== 'light' && toggleTheme()} className={`flex-1 py-3 rounded-xl flex items-center justify-center gap-2 text-sm font-bold transition-all ${settings.theme === 'light' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}><Sun size={18} /> فاتح</button>
-                <button onClick={() => settings.theme !== 'dark' && toggleTheme()} className={`flex-1 py-3 rounded-xl flex items-center justify-center gap-2 text-sm font-bold transition-all ${settings.theme === 'dark' ? 'bg-slate-900 text-white shadow-md' : 'text-gray-400'}`}><Moon size={18} /> داكن</button>
+                <button onClick={() => settings.theme !== 'light' && toggleTheme()} className={`flex-1 py-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold transition-all ${settings.theme === 'light' ? 'bg-primary text-white shadow-md' : 'text-gray-400'}`}><Sun size={18} /> فاتح</button>
+                <button onClick={() => settings.theme !== 'dark' && toggleTheme()} className={`flex-1 py-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold transition-all ${settings.theme === 'dark' ? 'bg-slate-900 text-white shadow-md' : 'text-gray-400'}`}><Moon size={18} /> داكن</button>
             </div>
         </div>
 
@@ -196,7 +212,7 @@ export const SettingsView: React.FC = () => {
                     <p className="text-[10px] text-gray-400">تستخدم للبحث الصوتي وتحليل الذكاء الاصطناعي.</p>
                 </div>
                 
-                <button onClick={handleSaveSettings} className="w-full bg-secondary/10 text-secondary border border-secondary/20 py-3 rounded-xl font-bold text-sm flex justify-center gap-2"><Save size={16} /> حفظ التغييرات</button>
+                <button onClick={handleSaveSettings} className="w-full bg-secondary/10 text-secondary border border-secondary/20 py-3 rounded-xl font-bold text-xs flex justify-center gap-2"><Save size={16} /> حفظ التغييرات</button>
 
             </div>
         </div>
@@ -216,7 +232,7 @@ export const SettingsView: React.FC = () => {
                         {settings.syncNewTasksToCalendar ? <ToggleRight size={40} className="opacity-100" /> : <ToggleLeft size={40} />}
                     </button>
                 </div>
-                <button onClick={handleSaveSettings} className="w-full bg-blue-500/10 text-blue-600 dark:text-blue-500 border border-blue-500/20 py-3 rounded-xl font-bold text-sm flex justify-center gap-2"><Save size={16} /> حفظ التغييرات</button>
+                <button onClick={handleSaveSettings} className="w-full bg-blue-500/10 text-blue-600 dark:text-blue-500 border border-blue-500/20 py-3 rounded-xl font-bold text-xs flex justify-center gap-2"><Save size={16} /> حفظ التغييرات</button>
              </div>
         </div>
 
@@ -231,10 +247,15 @@ export const SettingsView: React.FC = () => {
                 {settings.autoSaveMedia && (
                     <div className="space-y-2">
                         <label className="text-xs text-gray-500">اسم المجلد</label>
-                        <input type="text" value={settings.customMediaFolder || ''} onChange={(e) => setSettings({...settings, customMediaFolder: e.target.value})} className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-sm text-foreground focus:border-green-500 ltr" dir="ltr" />
+                        <div className="relative">
+                            <input type="text" value={settings.customMediaFolder || ''} onChange={(e) => setSettings({...settings, customMediaFolder: e.target.value})} className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-xl p-3 pl-10 text-sm text-foreground focus:border-green-500 ltr" dir="ltr" />
+                            <button onClick={handleVoiceInputFolder} className={`absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg ${isListeningFolder ? 'text-red-500 animate-pulse' : 'text-gray-400 hover:text-green-500'}`}>
+                                {isListeningFolder ? <MicOff size={16} /> : <Mic size={16} />}
+                            </button>
+                        </div>
                     </div>
                 )}
-                 <button onClick={handleSaveSettings} className="w-full bg-green-500/10 text-green-600 dark:text-green-500 border border-green-500/20 py-3 rounded-xl font-bold text-sm flex justify-center gap-2"><Save size={16} /> حفظ التغييرات</button>
+                 <button onClick={handleSaveSettings} className="w-full bg-green-500/10 text-green-600 dark:text-green-500 border border-green-500/20 py-3 rounded-xl font-bold text-xs flex justify-center gap-2"><Save size={16} /> حفظ التغييرات</button>
             </div>
         </div>
 
@@ -253,7 +274,7 @@ export const SettingsView: React.FC = () => {
                         <option value="gemini-pro">Gemini Pro</option>
                     </select>
                 </div>
-                <button onClick={handleSaveSettings} className="w-full bg-secondary/10 text-secondary border border-secondary/20 py-3 rounded-xl font-bold text-sm flex justify-center gap-2"><Save size={16} /> حفظ التغييرات</button>
+                <button onClick={handleSaveSettings} className="w-full bg-secondary/10 text-secondary border border-secondary/20 py-3 rounded-xl font-bold text-xs flex justify-center gap-2"><Save size={16} /> حفظ التغييرات</button>
             </div>
         </div>
 
@@ -261,12 +282,12 @@ export const SettingsView: React.FC = () => {
         <div className="space-y-3">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider px-1">البيانات</h3>
             <div className="bg-white dark:bg-card border border-gray-200 dark:border-white/5 rounded-2xl p-5 space-y-4 shadow-sm">
-                <button onClick={handleExportMedia} disabled={isProcessing} className="w-full bg-gray-50 hover:bg-gray-100 dark:bg-white/5 dark:hover:bg-white/10 text-foreground py-3 rounded-xl font-medium text-sm border border-gray-200 dark:border-white/10 flex justify-center gap-2">
+                <button onClick={handleExportMedia} disabled={isProcessing} className="w-full bg-gray-50 hover:bg-gray-100 dark:bg-white/5 dark:hover:bg-white/10 text-foreground py-3 rounded-xl font-medium text-xs border border-gray-200 dark:border-white/10 flex justify-center gap-2">
                     {isProcessing && progress > 0 ? `${progress}%` : <><Smartphone size={16} /> تصدير الوسائط</>}
                 </button>
                 <div className="grid grid-cols-2 gap-3">
-                    <button onClick={handleExportDB} disabled={isProcessing} className="py-3 rounded-xl bg-blue-500/10 text-blue-500 font-medium text-sm flex justify-center gap-2">{isProcessing && progress === 0 ? <Loader2 size={16} className="animate-spin"/> : <Download size={16} />} نسخ احتياطي</button>
-                    <label className="py-3 rounded-xl bg-gray-50 text-gray-500 border border-gray-200 dark:bg-white/5 dark:text-gray-400 dark:border-white/10 font-medium text-sm flex justify-center gap-2 cursor-pointer">
+                    <button onClick={handleExportDB} disabled={isProcessing} className="py-3 rounded-xl bg-blue-500/10 text-blue-500 font-medium text-xs flex justify-center gap-2">{isProcessing && progress === 0 ? <Loader2 size={16} className="animate-spin"/> : <Download size={16} />} نسخ احتياطي</button>
+                    <label className="py-3 rounded-xl bg-gray-50 text-gray-500 border border-gray-200 dark:bg-white/5 dark:text-gray-400 dark:border-white/10 font-medium text-xs flex justify-center gap-2 cursor-pointer">
                         <Upload size={16} /> استعادة <input type="file" accept=".json" onChange={handleImportDB} className="hidden" disabled={isProcessing} />
                     </label>
                 </div>

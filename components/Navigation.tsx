@@ -10,57 +10,58 @@ interface NavigationProps {
 
 export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab, isOnline = true }) => {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-gray-200 dark:border-white/10 pb-6 pt-3 px-2 z-50 transition-colors duration-300">
+    <nav className="fixed bottom-0 left-0 right-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-gray-200 dark:border-white/5 z-50 transition-colors duration-300 h-12 shadow-[0_-5px_20px_rgba(0,0,0,0.03)]">
       
       {!isOnline && (
-        <div className="absolute -top-6 left-0 right-0 bg-red-500 text-white text-[10px] py-1 text-center font-bold flex items-center justify-center gap-2">
-            <WifiOff size={12} />
-            <span>أنت غير متصل بالإنترنت</span>
+        <div className="absolute -top-5 left-0 right-0 bg-red-500 text-white text-[9px] py-0.5 text-center font-bold flex items-center justify-center gap-2">
+            <WifiOff size={10} />
+            <span>غير متصل</span>
         </div>
       )}
 
-      <div className="flex justify-between items-end max-w-md mx-auto px-4">
+      <div className="flex justify-between items-center max-w-md mx-auto px-6 h-full">
         
         <button 
           onClick={() => setActiveTab('memories')}
-          className={`flex flex-col items-center gap-1 transition-colors w-12 ${activeTab === 'memories' ? 'text-primary' : 'text-gray-400 dark:text-gray-500'}`}
+          title="ذكرياتي"
+          className={`flex items-center justify-center w-10 h-full transition-all ${activeTab === 'memories' ? 'text-primary' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'}`}
         >
           <LayoutGrid size={22} strokeWidth={activeTab === 'memories' ? 2.5 : 2} />
-          <span className="text-[9px] font-medium">ذكرياتي</span>
         </button>
 
         <button 
           onClick={() => setActiveTab('schedule')}
-          className={`flex flex-col items-center gap-1 transition-colors w-12 ${activeTab === 'schedule' ? 'text-green-500' : 'text-gray-400 dark:text-gray-500'}`}
+          title="مواعيدي"
+          className={`flex items-center justify-center w-10 h-full transition-all ${activeTab === 'schedule' ? 'text-green-500' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'}`}
         >
           <CalendarDays size={22} strokeWidth={activeTab === 'schedule' ? 2.5 : 2} />
-          <span className="text-[9px] font-medium">مواعيدي</span>
         </button>
 
-        {/* Main Action Button - Lifted */}
-        <div className="relative -top-5">
+        {/* Main Action Button - Lifted slightly less */}
+        <div className="relative -top-4">
             <button 
             onClick={() => setActiveTab('capture')}
-            className={`flex flex-col items-center justify-center bg-gradient-to-br from-primary to-secondary text-white rounded-full w-14 h-14 shadow-lg shadow-primary/30 border-4 border-white dark:border-slate-900 transition-transform active:scale-95 ${activeTab === 'capture' ? 'scale-110 ring-2 ring-primary/30' : ''}`}
+            title="تسجيل جديد"
+            className={`flex items-center justify-center bg-gradient-to-br from-primary to-secondary text-white rounded-full w-12 h-12 shadow-lg shadow-primary/30 border-2 border-white dark:border-slate-900 transition-transform active:scale-95 ${activeTab === 'capture' ? 'scale-110 ring-2 ring-primary/30' : ''}`}
             >
-            <Mic size={28} />
+            <Mic size={22} />
             </button>
         </div>
         
         <button 
           onClick={() => setActiveTab('search')}
-          className={`flex flex-col items-center gap-1 transition-colors w-12 ${activeTab === 'search' ? 'text-secondary' : 'text-gray-400 dark:text-gray-500'}`}
+          title="البحث الذكي"
+          className={`flex items-center justify-center w-10 h-full transition-all ${activeTab === 'search' ? 'text-secondary' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'}`}
         >
           <Sparkles size={22} strokeWidth={activeTab === 'search' ? 2.5 : 2} />
-          <span className="text-[9px] font-medium">بحث</span>
         </button>
 
         <button 
           onClick={() => setActiveTab('settings')}
-          className={`flex flex-col items-center gap-1 transition-colors w-12 ${activeTab === 'settings' ? 'text-blue-500' : 'text-gray-400 dark:text-gray-500'}`}
+          title="الإعدادات"
+          className={`flex items-center justify-center w-10 h-full transition-all ${activeTab === 'settings' ? 'text-blue-500' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'}`}
         >
           <Settings size={22} strokeWidth={activeTab === 'settings' ? 2.5 : 2} />
-          <span className="text-[9px] font-medium">إعدادات</span>
         </button>
       </div>
     </nav>

@@ -92,6 +92,23 @@ export const getMemories = async (): Promise<MemoryItem[]> => {
   });
 };
 
+export const getAllTags = async (): Promise<string[]> => {
+  const memories = await getMemories();
+  const tagCounts: Record<string, number> = {};
+
+  memories.forEach(memory => {
+    if (memory.tags && Array.isArray(memory.tags)) {
+      memory.tags.forEach(tag => {
+        const t = tag.trim();
+        if (t) tagCounts[t] = (tagCounts[t] || 0) + 1;
+      });
+    }
+  });
+
+  // Return tags sorted by frequency
+  return Object.keys(tagCounts).sort((a, b) => tagCounts[b] - tagCounts[a]);
+};
+
 export const getMemoryById = async (id: string): Promise<MemoryItem | undefined> => {
   const db = await openDB();
   return new Promise((resolve, reject) => {
