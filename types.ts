@@ -24,6 +24,7 @@ export interface MemoryItem {
   isFavorite?: boolean;
   isPinned?: boolean; // New property for pinning important memories
   reminder?: Reminder;
+  analysisStatus?: 'PENDING' | 'COMPLETED' | 'FAILED'; // Status of AI analysis
   metadata?: {
     duration?: number;
     mimeType?: string;

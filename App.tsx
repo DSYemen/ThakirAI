@@ -1,75 +1,23 @@
+
 import React, { useState, useEffect } from 'react';
 import { Navigation } from './components/Navigation';
 import { CaptureView } from './components/CaptureView';
 import { MemoriesView } from './components/MemoriesView';
 import { SearchView } from './components/SearchView';
-import { getMemories, saveMemory } from './services/db';
-import { ReminderFrequency } from './types';
+import { reminderService } from './services/reminderService';
 
 function App() {
   const [activeTab, setActiveTab] = useState<'capture' | 'memories' | 'search'>('capture');
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
-  // Request Notification Permission on mount
+  // Initialize Background Reminder Service
   useEffect(() => {
-    if ('Notification' in window && Notification.permission !== 'granted') {
-      Notification.requestPermission();
-    }
-  }, []);
-
-  // Background Reminder Check Service
-  useEffect(() => {
-    const checkReminders = async () => {
-      if ('Notification' in window && Notification.permission === 'granted') {
-        const memories = await getMemories();
-        const now = Date.now();
-
-        for (const memory of memories) {
-          if (memory.reminder && memory.reminder.timestamp <= now) {
-            // 1. Trigger Notification
-            new Notification("تذكير من الذاكرة الذكية", {
-              body: memory.summary || "لديك ذكرى تستحق الاسترجاع!",
-              icon: '/logo.svg', // Updated icon path
-              dir: 'rtl'
-            });
-
-            // 2. Handle Recurrence or Delete
-            let updatedMemory = { ...memory };
-            
-            if (memory.reminder.frequency === 'ONCE') {
-              delete updatedMemory.reminder;
-            } else {
-              // Calculate next occurrence
-              const oldDate = new Date(memory.reminder.timestamp);
-              const nextDate = new Date(oldDate);
-              
-              switch (memory.reminder.frequency) {
-                case 'DAILY': nextDate.setDate(oldDate.getDate() + 1); break;
-                case 'WEEKLY': nextDate.setDate(oldDate.getDate() + 7); break;
-                case 'MONTHLY': nextDate.setMonth(oldDate.getMonth() + 1); break;
-                case 'YEARLY': nextDate.setFullYear(oldDate.getFullYear() + 1); break;
-              }
-              
-              updatedMemory.reminder = {
-                ...memory.reminder,
-                timestamp: nextDate.getTime()
-              };
-            }
-
-            // 3. Save updates
-            await saveMemory(updatedMemory);
-          }
-        }
-      }
-    };
-
-    // Check every minute
-    const intervalId = setInterval(checkReminders, 60000);
+    reminderService.init();
     
-    // Initial check
-    checkReminders();
-
-    return () => clearInterval(intervalId);
+    // Cleanup on unmount
+    return () => {
+      reminderService.stop();
+    };
   }, []);
 
   const handleJumpToMemory = (id: string) => {
@@ -93,11 +41,14 @@ function App() {
   return (
     <div className="bg-dark min-h-[100dvh] text-white font-sans overflow-hidden">
       {/* Main Content Area - Full Height */}
-      <main className="h-[100dvh] w-full max-w-md mx-auto relative bg-dark shadow-2xl overflow-hidden print:hidden">
+      {/* Removed print:hidden to ensure the print template inside MemoriesView can be seen */}
+      <main className="h-[100dvh] w-full max-w-md mx-auto relative bg-dark shadow-2xl overflow-hidden">
            {renderView()}
            
-           {/* Navigation Overlay */}
-           <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
+           {/* Navigation Overlay - Navigation handles its own print hiding if needed, or CSS visibility handles it */}
+           <div className="print:hidden">
+              <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
+           </div>
       </main>
     </div>
   );
