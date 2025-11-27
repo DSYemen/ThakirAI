@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Send, Sparkles, Bot, Search as SearchIcon, Calendar, ArrowUpRight, Play, Video, Image as ImageIcon, FileText, X, ChevronDown, ChevronUp, Clock, Trash2, History, Mic, MicOff, AlignRight, LayoutList, ExternalLink, Loader2 } from 'lucide-react';
 import { getMemories } from '../services/db';
 import { smartSearch } from '../services/geminiService';
+import { getSettings } from '../services/settingsService';
 import { MediaType, SearchResult, MemoryItem } from '../types';
 
 interface SearchViewProps {
@@ -17,8 +18,15 @@ export const SearchView: React.FC<SearchViewProps> = ({ onJumpToMemory }) => {
   const [isListening, setIsListening] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [language, setLanguage] = useState('ar-SA');
 
-  useEffect(() => { const h = localStorage.getItem('thakira_search_history'); if (h) setSearchHistory(JSON.parse(h)); }, []);
+  useEffect(() => { 
+      const h = localStorage.getItem('thakira_search_history'); 
+      if (h) setSearchHistory(JSON.parse(h)); 
+      const settings = getSettings();
+      setLanguage(settings.language || 'ar-SA');
+  }, []);
+
   const saveToHistory = (q: string) => { const trim = q.trim(); if(!trim) return; const up = [trim, ...searchHistory.filter(h => h !== trim)].slice(0, 10); setSearchHistory(up); localStorage.setItem('thakira_search_history', JSON.stringify(up)); };
   const deleteFromHistory = (e: React.MouseEvent, i: string) => { e.stopPropagation(); const up = searchHistory.filter(item => item !== i); setSearchHistory(up); localStorage.setItem('thakira_search_history', JSON.stringify(up)); };
   const clearHistory = () => { if (confirm("مسح السجل؟")) { setSearchHistory([]); localStorage.removeItem('thakira_search_history'); } };
@@ -38,8 +46,12 @@ export const SearchView: React.FC<SearchViewProps> = ({ onJumpToMemory }) => {
   const handleVoiceSearch = () => {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) return alert("غير مدعوم");
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    const rec = new SpeechRecognition(); rec.lang = 'ar-SA'; rec.interimResults = false; rec.maxAlternatives = 1;
-    rec.onstart = () => setIsListening(true); rec.onend = () => setIsListening(false);
+    const rec = new SpeechRecognition(); 
+    rec.lang = language; 
+    rec.interimResults = false; 
+    rec.maxAlternatives = 1;
+    rec.onstart = () => setIsListening(true); 
+    rec.onend = () => setIsListening(false);
     rec.onresult = (e: any) => { const t = e.results[0][0].transcript; if (t) { setQuery(t); handleSearch(undefined, t); } };
     rec.start();
   };

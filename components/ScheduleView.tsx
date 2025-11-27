@@ -3,7 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { getAllReminders, saveMemory } from '../services/db';
 import { generateGoogleCalendarLink, openCalendarSearch } from '../services/calendarService';
 import { MemoryItem, MediaType, TaskCategory, ReminderFrequency } from '../types';
-import { Calendar, Clock, CheckCircle2, Circle, AlertCircle, X, Check, Layers, Tag, Briefcase, Heart, User, DollarSign, PartyPopper, Hash, Palette, Plus, CalendarPlus, Search } from 'lucide-react';
+import { getSettings } from '../services/settingsService';
+import { Calendar, Clock, CheckCircle2, Circle, AlertCircle, X, Check, Layers, Tag, Briefcase, Heart, User, DollarSign, PartyPopper, Hash, Palette, Plus, CalendarPlus, Search, Edit2, Mic, MicOff } from 'lucide-react';
 
 interface TaskGroup {
     overdue: MemoryItem[];
@@ -18,6 +19,9 @@ interface TaskCardProps {
     isOverdue?: boolean;
     onComplete: (task: MemoryItem) => void;
     onEditCategory: (task: MemoryItem) => void;
+    onEditTask: (task: MemoryItem) => void;
+    timeZone: string;
+    language: string;
 }
 
 const CATEGORY_STYLES: Record<string, { bg: string, border: string, text: string, iconBg: string, ring: string }> = {
@@ -31,13 +35,13 @@ const CATEGORY_STYLES: Record<string, { bg: string, border: string, text: string
 
 const COLORS = ['blue', 'red', 'green', 'yellow', 'purple', 'gray'] as const;
 
-const TaskCard: React.FC<TaskCardProps> = ({ item, isOverdue = false, onComplete, onEditCategory }) => {
+const TaskCard: React.FC<TaskCardProps> = ({ item, isOverdue = false, onComplete, onEditCategory, onEditTask, timeZone, language }) => {
     const formatTime = (ts: number) => {
-        return new Date(ts).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+        return new Date(ts).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit', timeZone });
     };
 
     const formatFullDate = (ts: number) => {
-        return new Date(ts).toLocaleDateString('ar-SA', { weekday: 'short', day: 'numeric', month: 'short' });
+        return new Date(ts).toLocaleDateString(language, { weekday: 'short', day: 'numeric', month: 'short', timeZone });
     };
 
     // Determine Styles
@@ -72,13 +76,20 @@ const TaskCard: React.FC<TaskCardProps> = ({ item, isOverdue = false, onComplete
                         {item.summary || "تذكير بدون عنوان"}
                     </h4>
                     
-                    {/* Category Icon Badge */}
-                    <button 
-                        onClick={(e) => { e.stopPropagation(); onEditCategory(item); }}
-                        className={`flex-shrink-0 ml-1 w-7 h-7 rounded-full flex items-center justify-center ${styles.iconBg} ${styles.text} opacity-80 hover:opacity-100 transition-opacity`}
-                    >
-                        {renderIcon()}
-                    </button>
+                    <div className="flex items-center gap-1">
+                         <button 
+                            onClick={(e) => { e.stopPropagation(); onEditTask(item); }}
+                            className={`w-7 h-7 rounded-full flex items-center justify-center hover:bg-black/5 dark:hover:bg-white/10 ${styles.text} transition-colors`}
+                        >
+                            <Edit2 size={14} />
+                        </button>
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); onEditCategory(item); }}
+                            className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${styles.iconBg} ${styles.text} opacity-80 hover:opacity-100 transition-opacity`}
+                        >
+                            {renderIcon()}
+                        </button>
+                    </div>
                 </div>
 
                 <div className="flex items-center gap-2 mt-2 flex-wrap">
@@ -120,6 +131,8 @@ export const ScheduleView: React.FC = () => {
   const [tasks, setTasks] = useState<TaskGroup>({ overdue: [], today: [], tomorrow: [], upcoming: [], completed: [] });
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<FilterType>('ALL');
+  const [timeZone, setTimeZone] = useState('UTC');
+  const [language, setLanguage] = useState('ar-SA');
   
   // Completion Modal
   const [selectedTask, setSelectedTask] = useState<MemoryItem | null>(null);
@@ -132,14 +145,21 @@ export const ScheduleView: React.FC = () => {
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [pendingCategory, setPendingCategory] = useState<TaskCategory | null>(null);
 
-  // Add Task Modal
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [newTaskSummary, setNewTaskSummary] = useState("");
-  const [newTaskDate, setNewTaskDate] = useState("");
-  const [newTaskFreq, setNewTaskFreq] = useState<ReminderFrequency>('ONCE');
+  // Add/Edit Task Modal
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [editingTask, setEditingTask] = useState<MemoryItem | null>(null);
+  const [taskSummary, setTaskSummary] = useState("");
+  const [taskDate, setTaskDate] = useState("");
+  const [taskFreq, setTaskFreq] = useState<ReminderFrequency>('ONCE');
   const [syncAddToCalendar, setSyncAddToCalendar] = useState(true);
+  const [isListening, setIsListening] = useState(false);
 
-  useEffect(() => { loadTasks(); }, []);
+  useEffect(() => { 
+      const settings = getSettings();
+      setTimeZone(settings.timeZone || 'UTC');
+      setLanguage(settings.language || 'ar-SA');
+      loadTasks(); 
+  }, []);
 
   const loadTasks = async () => {
     setLoading(true);
@@ -174,16 +194,59 @@ export const ScheduleView: React.FC = () => {
       setShowCategoryModal(true); 
   };
 
-  const initiateAddTask = () => {
-      setNewTaskSummary("");
-      // Default to today + 1 hour
-      const now = new Date();
-      now.setMinutes(now.getMinutes() + 60);
-      now.setMinutes(0, 0, 0); // round to hour
-      setNewTaskDate(new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16));
-      setNewTaskFreq('ONCE');
-      setSyncAddToCalendar(true);
-      setShowAddModal(true);
+  const openTaskModal = (task?: MemoryItem) => {
+      if (task) {
+          // Edit Mode
+          setEditingTask(task);
+          setTaskSummary(task.summary || task.transcription || "");
+          if (task.reminder) {
+             const date = new Date(task.reminder.timestamp);
+             // Format to datetime-local string (YYYY-MM-DDTHH:mm)
+             const isoString = new Date(date.getTime() - (date.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+             setTaskDate(isoString);
+             setTaskFreq(task.reminder.frequency);
+          } else {
+             setTaskDate("");
+             setTaskFreq('ONCE');
+          }
+          setSyncAddToCalendar(false); 
+      } else {
+          // Add Mode
+          setEditingTask(null);
+          setTaskSummary("");
+          const now = new Date();
+          now.setMinutes(now.getMinutes() + 60);
+          now.setMinutes(0, 0, 0); 
+          setTaskDate(new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16));
+          setTaskFreq('ONCE');
+          setSyncAddToCalendar(true); 
+      }
+      setShowTaskModal(true);
+  };
+
+  const handleVoiceInput = () => {
+    if (isListening) return;
+
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        alert("المتصفح لا يدعم الكتابة بالصوت");
+        return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = language; // Use selected language
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript) {
+            setTaskSummary(prev => prev ? prev + ' ' + transcript : transcript);
+        }
+    };
+    recognition.start();
   };
 
   const confirmComplete = async () => {
@@ -191,7 +254,6 @@ export const ScheduleView: React.FC = () => {
     const originalTask = selectedTask;
     const isRecurring = originalTask.reminder && originalTask.reminder.frequency !== 'ONCE';
 
-    // If requested, open Calendar Search to let user update/delete the external event
     if (syncCompleteToCalendar && originalTask.summary) {
         openCalendarSearch(originalTask.summary);
     }
@@ -218,25 +280,41 @@ export const ScheduleView: React.FC = () => {
     setShowCompleteModal(false); loadTasks();
   };
 
-  const handleAddTask = async () => {
-      if (!newTaskSummary.trim() || !newTaskDate) return;
-      const id = crypto.randomUUID();
-      const memory: MemoryItem = {
-          id,
-          type: MediaType.TEXT,
-          content: newTaskSummary,
-          transcription: newTaskSummary,
-          summary: newTaskSummary,
-          createdAt: Date.now(),
-          tags: ['يدوي', 'موعد'],
-          reminder: {
-              timestamp: new Date(newTaskDate).getTime(),
-              frequency: newTaskFreq
-          },
-          category: PRESET_CATEGORIES[5], // Default General
-          isFavorite: false,
-          isPinned: false
-      };
+  const handleSaveTask = async () => {
+      if (!taskSummary.trim() || !taskDate) return;
+
+      let memory: MemoryItem;
+
+      if (editingTask) {
+          memory = {
+              ...editingTask,
+              content: taskSummary,
+              transcription: taskSummary,
+              summary: taskSummary,
+              reminder: {
+                  timestamp: new Date(taskDate).getTime(),
+                  frequency: taskFreq
+              }
+          };
+      } else {
+          const id = crypto.randomUUID();
+          memory = {
+              id,
+              type: MediaType.TEXT,
+              content: taskSummary,
+              transcription: taskSummary,
+              summary: taskSummary,
+              createdAt: Date.now(),
+              tags: ['يدوي', 'موعد'],
+              reminder: {
+                  timestamp: new Date(taskDate).getTime(),
+                  frequency: taskFreq
+              },
+              category: PRESET_CATEGORIES[5], 
+              isFavorite: false,
+              isPinned: false
+          };
+      }
 
       await saveMemory(memory);
       
@@ -244,7 +322,7 @@ export const ScheduleView: React.FC = () => {
           generateGoogleCalendarLink(memory);
       }
 
-      setShowAddModal(false);
+      setShowTaskModal(false);
       loadTasks();
   };
 
@@ -274,7 +352,6 @@ export const ScheduleView: React.FC = () => {
       </button>
   );
 
-  // Total pending tasks
   const pendingCount = tasks.overdue.length + tasks.today.length + tasks.tomorrow.length + tasks.upcoming.length;
 
   return (
@@ -284,10 +361,10 @@ export const ScheduleView: React.FC = () => {
            <div className="flex justify-between items-center h-10">
                 <div>
                     <h2 className="text-xl font-bold text-foreground">مواعيدي</h2>
-                    <p className="text-xs text-gray-500">{new Date().toLocaleDateString('ar-SA', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+                    <p className="text-xs text-gray-500">{new Date().toLocaleDateString(language, { timeZone: timeZone, weekday: 'long', day: 'numeric', month: 'long' })}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button onClick={initiateAddTask} className="p-2 bg-primary text-white rounded-xl shadow-lg shadow-primary/20 hover:scale-105 transition-transform flex items-center gap-1">
+                    <button onClick={() => openTaskModal()} className="p-2 bg-primary text-white rounded-xl shadow-lg shadow-primary/20 hover:scale-105 transition-transform flex items-center gap-1">
                         <Plus size={20} />
                         <span className="text-xs font-bold hidden sm:inline">إضافة</span>
                     </button>
@@ -337,7 +414,7 @@ export const ScheduleView: React.FC = () => {
                             <Check size={32} />
                         </div>
                         <p className="text-sm">جدولك فارغ تماماً!</p>
-                        <button onClick={initiateAddTask} className="mt-4 text-primary font-bold text-sm hover:underline">إضافة مهمة جديدة</button>
+                        <button onClick={() => openTaskModal()} className="mt-4 text-primary font-bold text-sm hover:underline">إضافة مهمة جديدة</button>
                     </div>
                 )}
 
@@ -345,7 +422,7 @@ export const ScheduleView: React.FC = () => {
                 {(activeFilter === 'ALL' || activeFilter === 'OVERDUE') && tasks.overdue.length > 0 && (
                     <div className="space-y-3 animate-in slide-in-from-bottom-2 duration-300">
                         <h3 className="text-xs font-bold text-red-500 uppercase tracking-wider flex items-center gap-2 px-1"><AlertCircle size={14} /> مهام فائتة</h3>
-                        {tasks.overdue.map(item => <TaskCard key={item.id} item={item} isOverdue onComplete={initiateComplete} onEditCategory={initiateCategorize} />)}
+                        {tasks.overdue.map(item => <TaskCard key={item.id} item={item} isOverdue onComplete={initiateComplete} onEditCategory={initiateCategorize} onEditTask={openTaskModal} timeZone={timeZone} language={language} />)}
                     </div>
                 )}
 
@@ -353,7 +430,7 @@ export const ScheduleView: React.FC = () => {
                 {(activeFilter === 'ALL' || activeFilter === 'TODAY') && tasks.today.length > 0 && (
                     <div className="space-y-3 animate-in slide-in-from-bottom-2 duration-300 delay-75">
                         <h3 className="text-xs font-bold text-primary uppercase tracking-wider px-1">اليوم</h3>
-                        {tasks.today.map(item => <TaskCard key={item.id} item={item} onComplete={initiateComplete} onEditCategory={initiateCategorize} />)}
+                        {tasks.today.map(item => <TaskCard key={item.id} item={item} onComplete={initiateComplete} onEditCategory={initiateCategorize} onEditTask={openTaskModal} timeZone={timeZone} language={language} />)}
                     </div>
                 )}
 
@@ -361,7 +438,7 @@ export const ScheduleView: React.FC = () => {
                 {(activeFilter === 'ALL' || activeFilter === 'TOMORROW') && tasks.tomorrow.length > 0 && (
                     <div className="space-y-3 animate-in slide-in-from-bottom-2 duration-300 delay-100">
                         <h3 className="text-xs font-bold text-blue-500 uppercase tracking-wider px-1">غداً</h3>
-                        {tasks.tomorrow.map(item => <TaskCard key={item.id} item={item} onComplete={initiateComplete} onEditCategory={initiateCategorize} />)}
+                        {tasks.tomorrow.map(item => <TaskCard key={item.id} item={item} onComplete={initiateComplete} onEditCategory={initiateCategorize} onEditTask={openTaskModal} timeZone={timeZone} language={language} />)}
                     </div>
                 )}
 
@@ -369,7 +446,7 @@ export const ScheduleView: React.FC = () => {
                 {(activeFilter === 'ALL' || activeFilter === 'UPCOMING') && tasks.upcoming.length > 0 && (
                     <div className="space-y-3 animate-in slide-in-from-bottom-2 duration-300 delay-150">
                         <h3 className="text-xs font-bold text-orange-500 uppercase tracking-wider px-1">قادمة</h3>
-                        {tasks.upcoming.map(item => <TaskCard key={item.id} item={item} onComplete={initiateComplete} onEditCategory={initiateCategorize} />)}
+                        {tasks.upcoming.map(item => <TaskCard key={item.id} item={item} onComplete={initiateComplete} onEditCategory={initiateCategorize} onEditTask={openTaskModal} timeZone={timeZone} language={language} />)}
                     </div>
                 )}
 
@@ -384,7 +461,7 @@ export const ScheduleView: React.FC = () => {
                                     <div className="flex-1">
                                         <h4 className="text-xs font-bold text-gray-500 line-through decoration-gray-400">{item.summary}</h4>
                                         <div className="flex items-center gap-2 mt-1">
-                                            <span className="text-[10px] text-gray-400 font-mono">{new Date(item.reminder?.timestamp || item.createdAt).toLocaleDateString('ar-SA')}</span>
+                                            <span className="text-[10px] text-gray-400 font-mono">{new Date(item.reminder?.timestamp || item.createdAt).toLocaleDateString(language, { timeZone })}</span>
                                             {item.completionNote && <p className="text-[10px] text-green-600 dark:text-green-400">ملاحظة: {item.completionNote}</p>}
                                         </div>
                                     </div>
@@ -437,59 +514,77 @@ export const ScheduleView: React.FC = () => {
         </div>
       )}
 
-      {/* Add Task Modal */}
-      {showAddModal && (
+      {/* Add/Edit Task Modal */}
+      {showTaskModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="bg-white dark:bg-card w-full max-w-sm rounded-2xl border border-gray-200 dark:border-white/10 shadow-2xl overflow-hidden p-5">
                 <div className="text-center mb-4 border-b border-gray-100 dark:border-white/5 pb-4">
                     <h3 className="text-lg font-bold text-foreground flex items-center justify-center gap-2">
-                        <Plus size={20} className="text-primary" />
-                        إضافة مهمة جديدة
+                        {editingTask ? <Edit2 size={20} className="text-primary" /> : <Plus size={20} className="text-primary" />}
+                        {editingTask ? 'تعديل المهمة' : 'إضافة مهمة جديدة'}
                     </h3>
                 </div>
                 
                 <div className="space-y-4">
-                    <div>
+                    <div className="relative">
                         <label className="text-xs font-bold text-gray-500 mb-1.5 block">عنوان المهمة</label>
-                        <input type="text" value={newTaskSummary} onChange={e => setNewTaskSummary(e.target.value)} placeholder="مثال: موعد طبيب الأسنان" className="w-full bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-sm text-foreground focus:border-primary focus:outline-none" />
+                        <div className="relative">
+                            <input 
+                                type="text" 
+                                value={taskSummary} 
+                                onChange={e => setTaskSummary(e.target.value)} 
+                                placeholder="مثال: موعد طبيب الأسنان" 
+                                className={`w-full bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-xl p-3 pl-12 text-sm text-foreground focus:border-primary focus:outline-none ${isListening ? 'ring-2 ring-red-500/50' : ''}`} 
+                            />
+                            <button 
+                                onClick={handleVoiceInput}
+                                className={`absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg transition-colors ${isListening ? 'bg-red-500/20 text-red-500 animate-pulse' : 'text-gray-400 hover:text-primary hover:bg-gray-200 dark:hover:bg-white/10'}`}
+                            >
+                                {isListening ? <MicOff size={16} /> : <Mic size={16} />}
+                            </button>
+                        </div>
                     </div>
                     
                     <div>
                         <label className="text-xs font-bold text-gray-500 mb-1.5 block">التاريخ والوقت</label>
-                        <input type="datetime-local" value={newTaskDate} onChange={e => setNewTaskDate(e.target.value)} className="w-full bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-sm text-foreground focus:border-primary focus:outline-none" />
+                        <input type="datetime-local" value={taskDate} onChange={e => setTaskDate(e.target.value)} className="w-full bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-sm text-foreground focus:border-primary focus:outline-none" />
                     </div>
 
                     <div>
                         <label className="text-xs font-bold text-gray-500 mb-1.5 block">التكرار</label>
                         <div className="grid grid-cols-3 gap-2">
                             {['ONCE', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].map((freq) => (
-                                <button key={freq} onClick={() => setNewTaskFreq(freq as ReminderFrequency)} className={`text-[10px] py-2 rounded-lg border transition-all ${newTaskFreq === freq ? 'bg-primary/10 border-primary text-primary font-bold' : 'bg-gray-50 dark:bg-white/5 border-transparent text-gray-500'}`}>
+                                <button key={freq} onClick={() => setTaskFreq(freq as ReminderFrequency)} className={`text-[10px] py-2 rounded-lg border transition-all ${taskFreq === freq ? 'bg-primary/10 border-primary text-primary font-bold' : 'bg-gray-50 dark:bg-white/5 border-transparent text-gray-500'}`}>
                                     {freq === 'ONCE' ? 'مرة' : freq === 'DAILY' ? 'يومياً' : freq === 'WEEKLY' ? 'أسبوعياً' : freq === 'MONTHLY' ? 'شهرياً' : 'سنوياً'}
                                 </button>
                             ))}
                         </div>
                     </div>
 
-                    {/* Google Calendar Add Checkbox */}
-                    <div className="flex items-center gap-3 mt-2 p-3 bg-blue-50 dark:bg-blue-500/10 rounded-xl border border-blue-100 dark:border-blue-500/20">
-                        <input 
-                            type="checkbox" 
-                            id="syncAdd" 
-                            checked={syncAddToCalendar} 
-                            onChange={e => setSyncAddToCalendar(e.target.checked)}
-                            className="w-5 h-5 accent-blue-500 rounded-md"
-                        />
-                        <label htmlFor="syncAdd" className="text-xs text-blue-800 dark:text-blue-200 font-medium cursor-pointer flex-1">
-                            إضافة إلى تقويم جوجل
-                            <span className="block text-[9px] text-blue-600 dark:text-blue-300/70 font-normal">سيتم فتح التقويم لحفظ الموعد</span>
-                        </label>
-                        <CalendarPlus size={18} className="text-blue-500" />
-                    </div>
+                    {/* Google Calendar Add Checkbox - Only show on Create */}
+                    {!editingTask && (
+                        <div className="flex items-center gap-3 mt-2 p-3 bg-blue-50 dark:bg-blue-500/10 rounded-xl border border-blue-100 dark:border-blue-500/20">
+                            <input 
+                                type="checkbox" 
+                                id="syncAdd" 
+                                checked={syncAddToCalendar} 
+                                onChange={e => setSyncAddToCalendar(e.target.checked)}
+                                className="w-5 h-5 accent-blue-500 rounded-md"
+                            />
+                            <label htmlFor="syncAdd" className="text-xs text-blue-800 dark:text-blue-200 font-medium cursor-pointer flex-1">
+                                إضافة إلى تقويم جوجل
+                                <span className="block text-[9px] text-blue-600 dark:text-blue-300/70 font-normal">سيتم فتح التقويم لحفظ الموعد</span>
+                            </label>
+                            <CalendarPlus size={18} className="text-blue-500" />
+                        </div>
+                    )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 mt-6">
-                    <button onClick={() => setShowAddModal(false)} className="py-3 rounded-xl bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300 font-bold text-sm">إلغاء</button>
-                    <button onClick={handleAddTask} disabled={!newTaskSummary.trim() || !newTaskDate} className="py-3 rounded-xl bg-primary text-white font-bold text-sm shadow-lg shadow-primary/20 disabled:opacity-50">إضافة</button>
+                    <button onClick={() => setShowTaskModal(false)} className="py-3 rounded-xl bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300 font-bold text-sm">إلغاء</button>
+                    <button onClick={handleSaveTask} disabled={!taskSummary.trim() || !taskDate} className="py-3 rounded-xl bg-primary text-white font-bold text-sm shadow-lg shadow-primary/20 disabled:opacity-50">
+                        {editingTask ? 'حفظ التعديلات' : 'إضافة'}
+                    </button>
                 </div>
             </div>
         </div>

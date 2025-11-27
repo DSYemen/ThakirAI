@@ -3,18 +3,30 @@ import { AppSettings } from '../types';
 
 const SETTINGS_KEY = 'thakira_app_settings';
 
+// Helper to guess default timezone
+const getDefaultTimeZone = () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch (e) {
+    return 'UTC';
+  }
+};
+
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
   aiModel: 'gemini-2.5-flash',
   apiKey: '',
   autoSaveMedia: false,
-  customMediaFolder: 'Thakira_Media'
+  customMediaFolder: 'Thakira_Media',
+  timeZone: getDefaultTimeZone(),
+  language: 'ar-SA'
 };
 
 export const getSettings = (): AppSettings => {
   try {
     const saved = localStorage.getItem(SETTINGS_KEY);
     if (saved) {
+      // Merge saved settings with defaults to ensure new fields exist
       return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
     }
   } catch (e) {

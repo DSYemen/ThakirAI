@@ -54,4 +54,6 @@ export interface AppSettings {
   aiModel: string;
   autoSaveMedia?: boolean;
   customMediaFolder?: string;
+  timeZone?: string; // New: User Timezone
+  language?: string; // New: User Language preference
 }

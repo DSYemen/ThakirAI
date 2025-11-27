@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Moon, Sun, Key, Save, Database, Upload, Download, Smartphone, Check, AlertCircle, Loader2, RefreshCw, FolderOpen, ToggleLeft, ToggleRight, Settings } from 'lucide-react';
+import { Moon, Sun, Key, Save, Database, Upload, Download, Smartphone, Check, AlertCircle, Loader2, RefreshCw, FolderOpen, ToggleLeft, ToggleRight, Settings, Globe, Languages } from 'lucide-react';
 import { AppSettings } from '../types';
 import { getSettings, saveSettings } from '../services/settingsService';
 import { exportDatabase, importDatabase } from '../services/db';
@@ -11,12 +11,38 @@ export const SettingsView: React.FC = () => {
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [availableTimeZones, setAvailableTimeZones] = useState<string[]>([]);
 
-  useEffect(() => { setSettings(getSettings()); }, []);
+  const languages = [
+      { code: 'ar-SA', name: 'العربية (Arabic)' },
+      { code: 'en-US', name: 'English (United States)' },
+      { code: 'en-GB', name: 'English (UK)' },
+      { code: 'fr-FR', name: 'Français' },
+      { code: 'es-ES', name: 'Español' },
+      { code: 'de-DE', name: 'Deutsch' },
+      { code: 'tr-TR', name: 'Türkçe' },
+      { code: 'hi-IN', name: 'हिन्दी (Hindi)' },
+      { code: 'zh-CN', name: '中文 (Chinese)' }
+  ];
+
+  useEffect(() => { 
+      setSettings(getSettings());
+      try {
+        // Get list of supported timezones
+        const zones = (Intl as any).supportedValuesOf('timeZone');
+        setAvailableTimeZones(zones);
+      } catch (e) {
+        setAvailableTimeZones(['UTC', 'Asia/Riyadh', 'Africa/Cairo', 'Asia/Dubai', 'Europe/London', 'America/New_York']);
+      }
+  }, []);
 
   const handleSaveSettings = () => {
     if (!settings.customMediaFolder?.trim()) settings.customMediaFolder = 'Thakira_Media';
     saveSettings(settings); showStatus('success', 'تم حفظ الإعدادات بنجاح.');
+    // Force reload to apply language changes globally if needed, or rely on state updates
+    if (settings.language !== getSettings().language) {
+        window.location.reload();
+    }
   };
 
   const showStatus = (type: 'success' | 'error', text: string) => { setStatusMsg({ type, text }); setTimeout(() => setStatusMsg(null), 4000); };
@@ -66,7 +92,53 @@ export const SettingsView: React.FC = () => {
             </div>
         </div>
 
-        {/* Section 2: Storage */}
+        {/* Section 2: Time & Region */}
+        <div className="space-y-3">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider px-1">المنطقة واللغة</h3>
+            <div className="bg-white dark:bg-card border border-gray-200 dark:border-white/5 rounded-2xl p-5 space-y-4 shadow-sm">
+                
+                {/* Timezone */}
+                <div className="space-y-2">
+                    <label className="text-xs text-gray-500 flex items-center gap-1"><Globe size={12}/> المنطقة الزمنية</label>
+                    <div className="relative">
+                        <select 
+                            value={settings.timeZone} 
+                            onChange={(e) => setSettings({...settings, timeZone: e.target.value})} 
+                            className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-sm text-foreground focus:border-secondary appearance-none"
+                            dir="ltr"
+                        >
+                            {availableTimeZones.map(tz => (
+                                <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
+                            ))}
+                        </select>
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">▼</div>
+                    </div>
+                </div>
+
+                {/* Language */}
+                <div className="space-y-2">
+                    <label className="text-xs text-gray-500 flex items-center gap-1"><Languages size={12}/> لغة التطبيق والبحث</label>
+                    <div className="relative">
+                        <select 
+                            value={settings.language} 
+                            onChange={(e) => setSettings({...settings, language: e.target.value})} 
+                            className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-sm text-foreground focus:border-secondary appearance-none"
+                        >
+                            {languages.map(l => (
+                                <option key={l.code} value={l.code}>{l.name}</option>
+                            ))}
+                        </select>
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">▼</div>
+                    </div>
+                    <p className="text-[10px] text-gray-400">تستخدم للبحث الصوتي وتحليل الذكاء الاصطناعي.</p>
+                </div>
+                
+                <button onClick={handleSaveSettings} className="w-full bg-secondary/10 text-secondary border border-secondary/20 py-3 rounded-xl font-bold text-sm flex justify-center gap-2"><Save size={16} /> حفظ التغييرات</button>
+
+            </div>
+        </div>
+
+        {/* Section 3: Storage */}
         <div className="space-y-3">
              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider px-1">التخزين</h3>
             <div className="bg-white dark:bg-card border border-gray-200 dark:border-white/5 rounded-2xl p-5 space-y-5 shadow-sm">
@@ -80,11 +152,11 @@ export const SettingsView: React.FC = () => {
                         <input type="text" value={settings.customMediaFolder || ''} onChange={(e) => setSettings({...settings, customMediaFolder: e.target.value})} className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-sm text-foreground focus:border-green-500 ltr" dir="ltr" />
                     </div>
                 )}
-                 <button onClick={handleSaveSettings} className="w-full bg-green-500/10 text-green-600 dark:text-green-500 border border-green-500/20 py-3 rounded-xl font-bold text-sm flex justify-center gap-2"><Save size={16} /> حفظ</button>
+                 <button onClick={handleSaveSettings} className="w-full bg-green-500/10 text-green-600 dark:text-green-500 border border-green-500/20 py-3 rounded-xl font-bold text-sm flex justify-center gap-2"><Save size={16} /> حفظ التغييرات</button>
             </div>
         </div>
 
-        {/* Section 3: AI */}
+        {/* Section 4: AI */}
         <div className="space-y-3">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider px-1">الذكاء الاصطناعي</h3>
             <div className="bg-white dark:bg-card border border-gray-200 dark:border-white/5 rounded-2xl p-5 space-y-4 shadow-sm">
@@ -99,11 +171,11 @@ export const SettingsView: React.FC = () => {
                         <option value="gemini-pro">Gemini Pro</option>
                     </select>
                 </div>
-                <button onClick={handleSaveSettings} className="w-full bg-secondary/10 text-secondary border border-secondary/20 py-3 rounded-xl font-bold text-sm flex justify-center gap-2"><Save size={16} /> حفظ</button>
+                <button onClick={handleSaveSettings} className="w-full bg-secondary/10 text-secondary border border-secondary/20 py-3 rounded-xl font-bold text-sm flex justify-center gap-2"><Save size={16} /> حفظ التغييرات</button>
             </div>
         </div>
 
-        {/* Section 4: Data */}
+        {/* Section 5: Data */}
         <div className="space-y-3">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider px-1">البيانات</h3>
             <div className="bg-white dark:bg-card border border-gray-200 dark:border-white/5 rounded-2xl p-5 space-y-4 shadow-sm">
@@ -118,7 +190,7 @@ export const SettingsView: React.FC = () => {
                 </div>
             </div>
         </div>
-        <div className="text-center pt-4 pb-2"><p className="text-xs text-gray-400">الإصدار 1.0.3</p></div>
+        <div className="text-center pt-4 pb-2"><p className="text-xs text-gray-400">الإصدار 1.0.4</p></div>
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ import { getPagedMemories, deleteMemory, saveMemory, FilterOptions, getMemories,
 import { MemoryItem, MediaType, Reminder, ReminderFrequency } from '../types';
 import { generateGoogleCalendarLink } from '../services/calendarService';
 import { analyzeMedia } from '../services/geminiService';
+import { getSettings } from '../services/settingsService';
 import { Play, FileText, Image, Trash2, Video, Pause, Search, Filter, MoreVertical, FileJson, FileSpreadsheet, X, Clock, ChevronLeft, Star, Bell, Calendar, ChevronDown, ChevronUp, ArrowUpDown, Loader2, CalendarDays, Pin, PinOff, FileDown, Sparkles, Check, CheckSquare, Square } from 'lucide-react';
 
 interface DisplayMemory extends MemoryItem {
@@ -25,21 +26,25 @@ interface MemoryCardProps {
     isSelectionMode: boolean;
     isSelected: boolean;
     onSelect: (id: string) => void;
+    language: string;
 }
 
-const formatRelativeTime = (timestamp: number) => {
+const formatRelativeTime = (timestamp: number, language: string) => {
     const date = new Date(timestamp);
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
     const diffMs = startOfToday - startOfDate;
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    // Simple localization for basic relative terms
+    const isArabic = language.startsWith('ar');
 
-    if (diffDays === 0) return 'اليوم';
-    if (diffDays === 1) return 'أمس';
-    if (diffDays === 2) return 'قبل يومين';
-    if (diffDays > 2 && diffDays <= 7) return `منذ ${diffDays} أيام`;
-    return date.toLocaleDateString('ar-SA', { weekday: 'long', day: 'numeric', month: 'short' });
+    if (diffDays === 0) return isArabic ? 'اليوم' : 'Today';
+    if (diffDays === 1) return isArabic ? 'أمس' : 'Yesterday';
+    if (diffDays === 2) return isArabic ? 'قبل يومين' : '2 days ago';
+    if (diffDays > 2 && diffDays <= 7) return isArabic ? `منذ ${diffDays} أيام` : `${diffDays} days ago`;
+    return date.toLocaleDateString(language, { weekday: 'long', day: 'numeric', month: 'short' });
 };
 
 const formatDuration = (seconds: number) => {
@@ -51,7 +56,7 @@ const formatDuration = (seconds: number) => {
 
 const MemoryCard: React.FC<MemoryCardProps> = ({ 
     id, memory, isPlaying, onTogglePlay, onToggleFavorite, onTogglePin, onDelete, onSetReminder, onExportPDF, onReAnalyze, isHighlighted,
-    isSelectionMode, isSelected, onSelect
+    isSelectionMode, isSelected, onSelect, language
 }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const audioRef = useRef<HTMLAudioElement>(null);
@@ -134,18 +139,21 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
                      <div className="flex flex-col">
                          <div className="flex items-center gap-2">
                             <span className="text-xs text-gray-700 dark:text-gray-300 font-bold">
-                                {memory.type === MediaType.AUDIO ? 'تسجيل صوتي' : memory.type === MediaType.VIDEO ? 'فيديو' : memory.type === MediaType.IMAGE ? 'صورة' : 'نص'}
+                                {memory.type === MediaType.AUDIO ? (language.startsWith('ar') ? 'تسجيل صوتي' : 'Audio') : 
+                                 memory.type === MediaType.VIDEO ? (language.startsWith('ar') ? 'فيديو' : 'Video') : 
+                                 memory.type === MediaType.IMAGE ? (language.startsWith('ar') ? 'صورة' : 'Image') : 
+                                 (language.startsWith('ar') ? 'نص' : 'Text')}
                             </span>
                              {memory.reminder && (
                                 <div className="flex items-center gap-1.5 bg-secondary/10 text-secondary border border-secondary/20 text-[10px] px-2 py-0.5 rounded-full animate-pulse">
                                     <Bell size={10} fill="currentColor" />
-                                    <span className="font-bold font-mono tracking-tight">{new Date(memory.reminder.timestamp).toLocaleTimeString('ar-SA', {hour: '2-digit', minute:'2-digit'})}</span>
+                                    <span className="font-bold font-mono tracking-tight">{new Date(memory.reminder.timestamp).toLocaleTimeString(language, {hour: '2-digit', minute:'2-digit'})}</span>
                                 </div>
                             )}
                          </div>
                          <span className="text-[10px] text-gray-400 font-medium flex items-center gap-1 mt-0.5">
                             <Clock size={10} />
-                            {formatRelativeTime(memory.createdAt)}
+                            {formatRelativeTime(memory.createdAt, language)}
                          </span>
                      </div>
                  </div>
@@ -155,7 +163,7 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
                         {isPending && (
                             <div className="flex items-center gap-1.5 bg-yellow-500/10 text-yellow-500 px-2 py-1 rounded-full border border-yellow-500/20">
                                 <Loader2 size={10} className="animate-spin" />
-                                <span className="text-[10px]">جاري التحليل</span>
+                                <span className="text-[10px]">{language.startsWith('ar') ? 'جاري التحليل' : 'Analyzing'}</span>
                             </div>
                         )}
                         {memory.matchScore !== undefined && (
@@ -174,11 +182,11 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
 
             <div className={`px-4 py-1 relative z-10 ${isSelectionMode ? 'pl-12' : ''}`}>
                 <h3 className={`font-bold text-foreground leading-relaxed transition-all duration-300 ${isExpanded ? 'text-lg mb-2' : 'text-sm line-clamp-1'} ${isPending ? 'animate-pulse text-gray-400' : ''}`}>
-                    {memory.summary || (isPending ? "جاري استخراج العنوان..." : "بدون عنوان")}
+                    {memory.summary || (isPending ? (language.startsWith('ar') ? "جاري استخراج العنوان..." : "Processing...") : (language.startsWith('ar') ? "بدون عنوان" : "No Title"))}
                 </h3>
                 {!isExpanded && (
                     <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">
-                        {isPending ? "يتم الآن معالجة المحتوى بواسطة الذكاء الاصطناعي..." : (memory.transcription || memory.content)}
+                        {isPending ? (language.startsWith('ar') ? "يتم الآن معالجة المحتوى بواسطة الذكاء الاصطناعي..." : "AI is analyzing content...") : (memory.transcription || memory.content)}
                     </p>
                 )}
             </div>
@@ -208,14 +216,14 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
 
                     <div className="bg-gray-50 dark:bg-white/5 rounded-xl p-4 border border-gray-100 dark:border-white/5">
                         <div className="flex items-center gap-2 mb-2 text-xs text-gray-400 font-bold uppercase tracking-wider">
-                            <FileText size={12} /><span>التفاصيل الكاملة</span>
+                            <FileText size={12} /><span>{language.startsWith('ar') ? 'التفاصيل الكاملة' : 'Full Details'}</span>
                         </div>
                         <p className="text-sm text-gray-700 dark:text-gray-300 leading-loose whitespace-pre-wrap">{memory.transcription || memory.content}</p>
                     </div>
 
                     {memory.reminder && (
                          <button onClick={(e) => { e.stopPropagation(); generateGoogleCalendarLink(memory); }} className="w-full flex items-center justify-center gap-2 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-300 py-3 rounded-xl text-xs font-bold hover:bg-gray-200 dark:hover:bg-white/10 transition-colors">
-                             <CalendarDays size={14} className="text-blue-500" /> إضافة لتقويم جوجل
+                             <CalendarDays size={14} className="text-blue-500" /> {language.startsWith('ar') ? 'إضافة لتقويم جوجل' : 'Add to Google Calendar'}
                          </button>
                     )}
                 </div>
@@ -240,7 +248,7 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
                             <button onClick={(e) => onTogglePin(e, memory.id)} className={`p-2 rounded-full transition-all ${memory.isPinned ? 'text-cyan-500 bg-cyan-100 dark:bg-cyan-500/10' : 'text-gray-400 hover:text-cyan-500'}`}>{memory.isPinned ? <PinOff size={18} /> : <Pin size={18} />}</button>
                             <button onClick={(e) => { e.stopPropagation(); onDelete(memory.id); }} className="p-2 rounded-full text-gray-400 hover:text-red-500"><Trash2 size={18} /></button>
                         </div>
-                        {!isPending && <button className="flex items-center gap-1.5 text-xs text-primary font-medium">{isExpanded ? <><span className="text-[10px]">إغلاق</span><ChevronUp size={14} /></> : <><span className="text-[10px]">المزيد</span><ChevronDown size={14} /></>}</button>}
+                        {!isPending && <button className="flex items-center gap-1.5 text-xs text-primary font-medium">{isExpanded ? <><span className="text-[10px]">{language.startsWith('ar') ? 'إغلاق' : 'Close'}</span><ChevronUp size={14} /></> : <><span className="text-[10px]">{language.startsWith('ar') ? 'المزيد' : 'More'}</span><ChevronDown size={14} /></>}</button>}
                     </div>
                 </div>
             )}
@@ -255,6 +263,7 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
   const [loadingMore, setLoadingMore] = useState(false);
   const [cursor, setCursor] = useState<{ value: any; id: string } | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const [language, setLanguage] = useState('ar-SA');
 
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<MediaType | 'ALL'>('ALL');
@@ -280,6 +289,11 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const observerTarget = useRef(null);
+
+  useEffect(() => { 
+      const settings = getSettings();
+      setLanguage(settings.language || 'ar-SA');
+  }, []);
 
   useEffect(() => { if (highlightedMemoryId) handleHighlight(highlightedMemoryId); }, [highlightedMemoryId]);
 
@@ -375,11 +389,6 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
       else { if (playingId) (document.getElementById(`audio-${playingId}`) as HTMLAudioElement)?.pause(); setPlayingId(id); const audio = document.getElementById(`audio-${id}`) as HTMLAudioElement; if (audio) { audio.currentTime = 0; audio.play(); } }
   };
 
-  const downloadFile = (content: string, fileName: string, contentType: string) => { const a = document.createElement("a"); const file = new Blob([content], { type: contentType }); a.href = URL.createObjectURL(file); a.download = fileName; a.click(); setShowMenu(false); };
-  const exportJSON = async () => { const all = await getMemories(); downloadFile(JSON.stringify(all, null, 2), `thakira_backup_${Date.now()}.json`, 'application/json'); };
-  const exportCSV = async () => { const all = await getMemories(); let csv = "\uFEFFID,Date,Type,Summary,Tags,Transcription\n"; all.forEach(m => csv += `"${m.id}","${new Date(m.createdAt).toLocaleDateString()}","${m.type}","${(m.summary||"").replace(/"/g,'""')}","${m.tags?.join(";")||""}","${(m.transcription||"").replace(/"/g,'""')}"\n`); downloadFile(csv, `thakira_report_${Date.now()}.csv`, 'text/csv'); };
-
-  // Selection Logic
   const toggleSelectionMode = () => {
     setIsSelectionMode(!isSelectionMode);
     setSelectedIds(new Set());
@@ -514,6 +523,7 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
                             isSelectionMode={isSelectionMode}
                             isSelected={selectedIds.has(mem.id)}
                             onSelect={handleSelectMemory}
+                            language={language}
                         />
                     ))}
                     <div ref={observerTarget} className="h-20 flex items-center justify-center">{loadingMore && <Loader2 className="animate-spin text-gray-500" size={24} />}</div>
@@ -594,7 +604,7 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
             <div id="print-container" className="hidden print:block fixed inset-0 bg-white z-[9999] overflow-visible text-black p-8">
                 <div className="text-center border-b-2 border-gray-300 pb-6 mb-8">
                     <h1 className="text-4xl font-bold mb-2">تقرير الذكريات</h1>
-                    <p className="text-gray-500">تم الاستخراج بتاريخ {new Date().toLocaleDateString('ar-SA')}</p>
+                    <p className="text-gray-500">تم الاستخراج بتاريخ {new Date().toLocaleDateString(language)}</p>
                 </div>
                 <div className="space-y-8">
                     {printableMemories.map((item) => (
@@ -603,7 +613,7 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
                                 <div>
                                     <h3 className="text-xl font-bold mb-1">{item.summary || "بدون عنوان"}</h3>
                                     <div className="flex items-center gap-3 text-sm text-gray-500">
-                                        <span>{new Date(item.createdAt).toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                                        <span>{new Date(item.createdAt).toLocaleDateString(language, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
                                         <span>•</span>
                                         <span className="font-bold">{item.type}</span>
                                     </div>

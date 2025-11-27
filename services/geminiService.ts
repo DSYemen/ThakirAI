@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { MemoryItem, MediaType, ReminderFrequency } from "../types";
 import { getSettings } from "./settingsService";
@@ -42,18 +43,34 @@ export const analyzeMedia = async (
   try {
     const ai = getAI();
     const model = getModelName();
+    const settings = getSettings();
+    const timeZone = settings.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const language = settings.language || 'ar-SA';
+    const langName = language.startsWith('ar') ? 'Arabic' : 'English';
 
     const now = new Date();
+    // Format date specifically for the user's timezone to give Gemini the correct context
+    const userTime = now.toLocaleString('en-US', { timeZone: timeZone, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: 'numeric' });
+
     const currentContext = `
-    التوقيت الحالي للمستخدم هو: ${now.toISOString()} (${now.toLocaleDateString('en-US', { weekday: 'long' })}).
-    استخدم هذا التوقيت لحساب أي تواريخ نسبية بدقة (مثال: "غداً"، "الجمعة القادم"، "بعد ساعة").
+    Context:
+    - User's Timezone: ${timeZone}
+    - Current User Time: ${userTime}
+    - User's Language Preference: ${langName} (${language})
+    
+    Instructions:
+    1. Analyze the content deeply.
+    2. Transcribe any speech or text accurately in its original language.
+    3. Provide the 'summary' and 'tags' in ${langName}.
+    4. Detect any reminders relative to the User's Current Time provided above.
+       - Example: If user says "tomorrow at 9am", calculate the ISO timestamp based on ${userTime} in ${timeZone}.
     `;
 
-    let prompt = "قم بتحليل هذا المحتوى بدقة عالية. " + currentContext;
+    let prompt = currentContext;
     const parts: any[] = [];
 
     if (type === MediaType.AUDIO) {
-        prompt += "قم بنسخ (Transcribe) الكلام بدقة، لخص الموضوع، استخرج الوسوم. إذا ذكر المستخدم موعداً للتذكير أو تكراراً (مثال: ذكرني كل يوم، موعد الطبيب غداً)، استخرج بيانات التذكير.";
+        prompt += "\nTask: Transcribe speech, summarize, extract tags. If a reminder is mentioned (e.g., 'remind me everyday', 'doctor appointment tomorrow'), extract reminder data.";
         parts.push({
         inlineData: {
             mimeType: "audio/mp3", 
@@ -61,7 +78,7 @@ export const analyzeMedia = async (
         }
         });
     } else if (type === MediaType.IMAGE) {
-        prompt += "صف الصورة، حدد العناصر، استخرج وسوم. إذا كانت الصورة تحتوي على نص لموعد (مثال: دعوة، تذكرة، ورقة ملاحظات)، استخرج بيانات التذكير.";
+        prompt += "\nTask: Describe image, identify objects/text, extract tags. If image contains event info (ticket, invitation, note), extract reminder data.";
         parts.push({
         inlineData: {
             mimeType: "image/jpeg",
@@ -69,7 +86,7 @@ export const analyzeMedia = async (
         }
         });
     } else if (type === MediaType.VIDEO) {
-        prompt += "حلل الفيديو بصرياً وصوتياً. استخرج وسوم. إذا تم ذكر موعد أو ظهر تاريخ مهم، استخرج بيانات التذكير.";
+        prompt += "\nTask: Analyze video visually and audibly. Summarize, extract tags. If an event or date is mentioned, extract reminder data.";
         parts.push({
         inlineData: {
             mimeType: "video/mp4", 
@@ -77,11 +94,11 @@ export const analyzeMedia = async (
         }
         });
     } else {
-        prompt += "لخص النص، استخرج الوسوم. إذا طلب المستخدم تذكيراً (مثال: 'ذكرني شراء الحليب مساءً')، استخرج بيانات التذكير.";
+        prompt += "\nTask: Summarize text, extract tags. If a reminder is requested (e.g., 'remind me to buy milk tonight'), extract reminder data.";
     }
 
     if (textContext) {
-        prompt += `\n سياق إضافي من المستخدم: ${textContext}`;
+        prompt += `\nAdditional User Context: ${textContext}`;
     }
 
     parts.push({ text: prompt });
@@ -94,23 +111,23 @@ export const analyzeMedia = async (
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            transcription: { type: Type.STRING, description: "النص الكامل أو الوصف الدقيق" },
-            summary: { type: Type.STRING, description: "ملخص قصير ومركز" },
+            transcription: { type: Type.STRING, description: "Full transcription or detailed description" },
+            summary: { type: Type.STRING, description: "Concise summary in user's language" },
             tags: { 
               type: Type.ARRAY, 
               items: { type: Type.STRING },
-              description: "3-5 وسوم دقيقة" 
+              description: "3-5 relevant tags" 
             },
             detectedReminder: {
                 type: Type.OBJECT,
                 nullable: true,
-                description: "يملأ فقط إذا تم اكتشاف نية تذكير صريحة",
+                description: "Fill only if a clear reminder intention is detected",
                 properties: {
-                    isoTimestamp: { type: Type.STRING, description: "تاريخ ووقت التذكير بصيغة ISO 8601" },
+                    isoTimestamp: { type: Type.STRING, description: "ISO 8601 timestamp (UTC) of the reminder event" },
                     frequency: { 
                         type: Type.STRING, 
                         enum: ['ONCE', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'],
-                        description: "نوع التكرار" 
+                        description: "Recurrence frequency" 
                     }
                 }
             }
@@ -141,48 +158,55 @@ export const smartSearch = async (query: string, memories: MemoryItem[]): Promis
     try {
         const ai = getAI();
         const model = getModelName();
+        const settings = getSettings();
+        const timeZone = settings.timeZone || 'Asia/Riyadh';
+        const language = settings.language || 'ar-SA';
+        const langName = language.startsWith('ar') ? 'Arabic' : 'English';
         
         // Optimized context to save tokens
         const context = memories.map(m => ({
             id: m.id,
-            date: new Date(m.createdAt).toLocaleDateString('ar-SA'),
+            date: new Date(m.createdAt).toLocaleDateString(language, { timeZone }),
             type: m.type,
-            summary: m.summary || "لا يوجد وصف",
+            summary: m.summary || "No description",
             text: m.type === MediaType.TEXT ? m.content.substring(0, 300) : m.transcription?.substring(0, 300) || "",
             tags: m.tags.join(", ")
         }));
 
         const prompt = `
-        أنت مساعد ذكي للذكريات الشخصية. هدفك هو مساعدة المستخدم في استرجاع المعلومات من ذكرياته المسجلة.
+        Role: Personal Memory Assistant.
+        User's Timezone: ${timeZone}.
+        User's Current Time: ${new Date().toLocaleString(language, { timeZone })}.
+        Target Language: ${langName}.
         
-        سؤال المستخدم: "${query}"
+        User Query: "${query}"
 
-        قائمة الذكريات المتاحة (Context):
+        Available Memories (Context):
         ${JSON.stringify(context)}
 
-        المطلوب:
-        1. "answer": قم بصياغة إجابة طبيعية، شاملة، ومفيدة باللغة العربية. 
-        - استخدم المعلومات الموجودة في الذكريات للإجابة على السؤال.
-        - إذا وجدت الإجابة في عدة ذكريات، قم بتجميعها في فقرة متماسكة.
-        - إذا لم تجد إجابة دقيقة، اعتذر بلطف واذكر أقرب معلومة إن وجدت.
+        Task:
+        1. "answer": Formulate a comprehensive, helpful, and natural answer in ${langName}.
+           - Use the provided memories to answer the query.
+           - Synthesize information from multiple memories if needed.
+           - If no answer found, politely apologize in ${langName}.
         
-        2. "results": اختر الذكريات التي استندت إليها في إجابتك أو التي لها صلة قوية بالسؤال.
-        - "id": معرف الذكرى.
-        - "score": نسبة المطابقة (0-100).
-        - "reason": لماذا اخترت هذه الذكرى (شرح قصير).
+        2. "results": Select relevant memories.
+           - "id": memory id.
+           - "score": relevance score (0-100).
+           - "reason": brief reason for selection in ${langName}.
         
-        رتب النتائج (results) تنازلياً حسب الأهمية.
+        Sort results by relevance score descending.
         `;
 
         const response = await ai.models.generateContent({
-            model: model, // Use dynamic model
+            model: model, 
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
-                        answer: { type: Type.STRING, description: "الإجابة الكاملة والمجمعة" },
+                        answer: { type: Type.STRING, description: "The comprehensive answer" },
                         results: {
                             type: Type.ARRAY,
                             items: {
