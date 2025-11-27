@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Send, Sparkles, Bot, Search as SearchIcon, Calendar, ArrowUpRight, Play, Video, Image as ImageIcon, FileText, X, ChevronDown, ChevronUp, Clock, Trash2, History, Mic, MicOff, AlignRight, LayoutList, ExternalLink, Loader2 } from 'lucide-react';
 import { getMemories } from '../services/db';
@@ -108,7 +109,16 @@ export const SearchView: React.FC<SearchViewProps> = ({ onJumpToMemory }) => {
                                                     <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${st.b} ${st.t}`}>{res.item.type}</span>
                                                     <span className="text-[10px] text-gray-500 flex items-center gap-1"><Calendar size={10} />{new Date(res.item.createdAt).toLocaleDateString('ar-SA')}</span>
                                                 </div>
-                                                {isExpanded ? <ChevronUp size={14} className="text-gray-400"/> : <ChevronDown size={14} className="text-gray-400"/>}
+                                                <div className="flex items-center gap-2">
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); onJumpToMemory(res.item.id); }} 
+                                                        className="p-1 text-gray-400 hover:text-primary hover:bg-primary/10 rounded-full transition-colors"
+                                                        title="عرض في الجدول الزمني"
+                                                    >
+                                                        <ArrowUpRight size={16} />
+                                                    </button>
+                                                    {isExpanded ? <ChevronUp size={14} className="text-gray-400"/> : <ChevronDown size={14} className="text-gray-400"/>}
+                                                </div>
                                             </div>
                                             <p className="text-xs font-bold text-foreground line-clamp-1 mb-0.5">{res.item.summary || "بدون عنوان"}</p>
                                             <p className="text-[10px] text-gray-500 flex items-center gap-1"><ArrowUpRight size={10} className="text-primary" />{res.relevanceReason}</p>

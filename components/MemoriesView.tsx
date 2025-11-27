@@ -1,9 +1,10 @@
+
 import React, { useEffect, useState, useRef } from 'react';
 import { getPagedMemories, deleteMemory, saveMemory, FilterOptions, getMemories, getMemoryById } from '../services/db';
 import { MemoryItem, MediaType, Reminder, ReminderFrequency } from '../types';
 import { generateGoogleCalendarLink } from '../services/calendarService';
 import { analyzeMedia } from '../services/geminiService';
-import { Play, FileText, Image, Trash2, Video, Pause, Search, Filter, MoreVertical, FileJson, FileSpreadsheet, X, Clock, ChevronLeft, Star, Bell, Calendar, ChevronDown, ChevronUp, ArrowUpDown, Loader2, CalendarDays, Pin, PinOff, FileDown, Sparkles } from 'lucide-react';
+import { Play, FileText, Image, Trash2, Video, Pause, Search, Filter, MoreVertical, FileJson, FileSpreadsheet, X, Clock, ChevronLeft, Star, Bell, Calendar, ChevronDown, ChevronUp, ArrowUpDown, Loader2, CalendarDays, Pin, PinOff, FileDown, Sparkles, Check, CheckSquare, Square } from 'lucide-react';
 
 interface DisplayMemory extends MemoryItem {
     matchScore?: number;
@@ -21,6 +22,9 @@ interface MemoryCardProps {
     onExportPDF: (e: React.MouseEvent, memory: MemoryItem) => void;
     onReAnalyze: (e: React.MouseEvent, memory: MemoryItem) => void;
     isHighlighted?: boolean;
+    isSelectionMode: boolean;
+    isSelected: boolean;
+    onSelect: (id: string) => void;
 }
 
 const formatRelativeTime = (timestamp: number) => {
@@ -46,7 +50,8 @@ const formatDuration = (seconds: number) => {
 };
 
 const MemoryCard: React.FC<MemoryCardProps> = ({ 
-    id, memory, isPlaying, onTogglePlay, onToggleFavorite, onTogglePin, onDelete, onSetReminder, onExportPDF, onReAnalyze, isHighlighted
+    id, memory, isPlaying, onTogglePlay, onToggleFavorite, onTogglePin, onDelete, onSetReminder, onExportPDF, onReAnalyze, isHighlighted,
+    isSelectionMode, isSelected, onSelect
 }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const audioRef = useRef<HTMLAudioElement>(null);
@@ -88,16 +93,38 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
     const isPending = memory.analysisStatus === 'PENDING';
 
     let containerClasses = "group backdrop-blur-sm rounded-2xl overflow-hidden transition-all duration-300 relative border ";
-    if (isHighlighted) containerClasses += "border-primary ring-2 ring-primary/50 bg-white dark:bg-slate-800 z-10 shadow-lg";
-    else if (memory.isPinned) containerClasses += "border-cyan-200 dark:border-cyan-500/50 bg-white dark:bg-slate-800/90 shadow-md ring-1 ring-cyan-500/10";
-    else containerClasses += "bg-white dark:bg-card border-gray-200 dark:border-white/5 hover:shadow-md";
+    if (isSelectionMode) {
+        if (isSelected) containerClasses += "border-primary bg-primary/5 ring-2 ring-primary/50 shadow-md transform scale-[1.02] z-10 ";
+        else containerClasses += "border-gray-200 dark:border-white/5 bg-white/80 dark:bg-card opacity-80 hover:opacity-100 ";
+    } else {
+        if (isHighlighted) containerClasses += "border-primary ring-2 ring-primary/50 bg-white dark:bg-slate-800 z-10 shadow-lg ";
+        else if (memory.isPinned) containerClasses += "border-cyan-200 dark:border-cyan-500/50 bg-white dark:bg-slate-800/90 shadow-md ring-1 ring-cyan-500/10 ";
+        else containerClasses += "bg-white dark:bg-card border-gray-200 dark:border-white/5 hover:shadow-md ";
+    }
+
+    const handleClick = (e: React.MouseEvent) => {
+        if (isSelectionMode) {
+            e.stopPropagation();
+            onSelect(memory.id);
+        } else if (!isPending) {
+            setIsExpanded(!isExpanded);
+        }
+    };
 
     return (
-        <div id={id} onClick={() => !isPending && setIsExpanded(!isExpanded)} className={`${containerClasses} ${isPending ? 'opacity-80' : ''}`}>
-             {memory.reminder && !isHighlighted && !memory.isPinned && (
+        <div id={id} onClick={handleClick} className={`${containerClasses} ${isPending ? 'opacity-80' : ''} ${isSelectionMode ? 'cursor-pointer' : ''}`}>
+            
+             {/* Selection Checkbox Overlay */}
+             {isSelectionMode && (
+                <div className={`absolute top-4 left-4 z-50 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-200 ${isSelected ? 'bg-primary border-primary scale-110' : 'bg-gray-100 dark:bg-white/10 border-gray-300 dark:border-white/20'}`}>
+                    {isSelected && <Check size={14} className="text-white" />}
+                </div>
+            )}
+
+             {memory.reminder && !isHighlighted && !memory.isPinned && !isSelectionMode && (
                 <div className="absolute inset-0 rounded-2xl border border-secondary/40 animate-[pulse_3s_infinite] pointer-events-none" />
             )}
-            {memory.isPinned && <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-500/0 via-cyan-500/50 to-cyan-500/0"></div>}
+            {memory.isPinned && !isSelectionMode && <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-500/0 via-cyan-500/50 to-cyan-500/0"></div>}
 
             <div className="p-4 pb-2 flex justify-between items-start relative z-10">
                  <div className="flex items-center gap-3">
@@ -123,27 +150,29 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
                      </div>
                  </div>
 
-                 <div className="flex items-center gap-2">
-                     {isPending && (
-                         <div className="flex items-center gap-1.5 bg-yellow-500/10 text-yellow-500 px-2 py-1 rounded-full border border-yellow-500/20">
-                             <Loader2 size={10} className="animate-spin" />
-                             <span className="text-[10px]">جاري التحليل</span>
-                         </div>
-                     )}
-                     {memory.matchScore !== undefined && (
-                        <div className="bg-green-100 text-green-600 dark:bg-green-500/10 dark:text-green-400 border border-green-200 dark:border-green-500/20 text-[10px] font-bold px-2 py-1 rounded-full flex items-center gap-1">
-                            {memory.matchScore}%
-                        </div>
-                     )}
-                     {memory.isPinned && !memory.matchScore && (
-                         <div className="text-cyan-500 dark:text-cyan-400 bg-cyan-100 dark:bg-cyan-400/10 p-1.5 rounded-full">
-                             <Pin size={12} fill="currentColor" />
-                         </div>
-                     )}
-                 </div>
+                 {!isSelectionMode && (
+                    <div className="flex items-center gap-2">
+                        {isPending && (
+                            <div className="flex items-center gap-1.5 bg-yellow-500/10 text-yellow-500 px-2 py-1 rounded-full border border-yellow-500/20">
+                                <Loader2 size={10} className="animate-spin" />
+                                <span className="text-[10px]">جاري التحليل</span>
+                            </div>
+                        )}
+                        {memory.matchScore !== undefined && (
+                            <div className="bg-green-100 text-green-600 dark:bg-green-500/10 dark:text-green-400 border border-green-200 dark:border-green-500/20 text-[10px] font-bold px-2 py-1 rounded-full flex items-center gap-1">
+                                {memory.matchScore}%
+                            </div>
+                        )}
+                        {memory.isPinned && !memory.matchScore && (
+                            <div className="text-cyan-500 dark:text-cyan-400 bg-cyan-100 dark:bg-cyan-400/10 p-1.5 rounded-full">
+                                <Pin size={12} fill="currentColor" />
+                            </div>
+                        )}
+                    </div>
+                 )}
             </div>
 
-            <div className="px-4 py-1 relative z-10">
+            <div className={`px-4 py-1 relative z-10 ${isSelectionMode ? 'pl-12' : ''}`}>
                 <h3 className={`font-bold text-foreground leading-relaxed transition-all duration-300 ${isExpanded ? 'text-lg mb-2' : 'text-sm line-clamp-1'} ${isPending ? 'animate-pulse text-gray-400' : ''}`}>
                     {memory.summary || (isPending ? "جاري استخراج العنوان..." : "بدون عنوان")}
                 </h3>
@@ -154,7 +183,7 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
                 )}
             </div>
 
-            {isExpanded && !isPending && (
+            {isExpanded && !isPending && !isSelectionMode && (
                 <div className="px-4 py-2 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300 relative z-10">
                     <div className="rounded-xl overflow-hidden bg-gray-50 dark:bg-black/30 border border-gray-200 dark:border-white/5">
                         {memory.type === MediaType.IMAGE && <img src={memory.content} alt="Memory" className="w-full h-auto max-h-[400px] object-contain" />}
@@ -192,27 +221,29 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
                 </div>
             )}
 
-            <div className="px-4 py-3 mt-2 border-t border-gray-100 dark:border-white/5 flex flex-col gap-3 relative z-10">
-                {memory.tags && memory.tags.length > 0 && (
-                     <div className="flex flex-wrap gap-2">
-                        {memory.tags.map((tag, idx) => (
-                            <span key={idx} className="text-[10px] text-secondary bg-secondary/10 border border-secondary/20 px-2 py-1 rounded-md">#{tag.replace(/\s+/g, '_')}</span>
-                        ))}
-                    </div>
-                )}
+            {!isSelectionMode && (
+                <div className="px-4 py-3 mt-2 border-t border-gray-100 dark:border-white/5 flex flex-col gap-3 relative z-10">
+                    {memory.tags && memory.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                            {memory.tags.map((tag, idx) => (
+                                <span key={idx} className="text-[10px] text-secondary bg-secondary/10 border border-secondary/20 px-2 py-1 rounded-md">#{tag.replace(/\s+/g, '_')}</span>
+                            ))}
+                        </div>
+                    )}
 
-                <div className="flex justify-between items-center pt-1">
-                    <div className="flex items-center gap-1">
-                        <button onClick={(e) => onSetReminder(e, memory)} className={`p-2 rounded-full transition-all ${memory.reminder ? 'text-secondary bg-secondary/10' : 'text-gray-400 hover:text-secondary'}`}><Bell size={18} fill={memory.reminder ? "currentColor" : "none"} /></button>
-                        <button onClick={(e) => onReAnalyze(e, memory)} disabled={isPending} className={`p-2 rounded-full transition-all ${isPending ? 'text-yellow-500/50' : 'text-gray-400 hover:text-yellow-500'}`}><Sparkles size={18} className={isPending ? 'animate-pulse' : ''} /></button>
-                        <button onClick={(e) => onExportPDF(e, memory)} disabled={isPending} className="p-2 rounded-full text-gray-400 hover:text-blue-500"><FileDown size={18} /></button>
-                        <button onClick={(e) => onToggleFavorite(e, memory.id)} className={`p-2 rounded-full transition-all ${memory.isFavorite ? 'text-yellow-400 bg-yellow-400/10' : 'text-gray-400 hover:text-yellow-400'}`}><Star size={18} fill={memory.isFavorite ? "currentColor" : "none"} /></button>
-                        <button onClick={(e) => onTogglePin(e, memory.id)} className={`p-2 rounded-full transition-all ${memory.isPinned ? 'text-cyan-500 bg-cyan-100 dark:bg-cyan-500/10' : 'text-gray-400 hover:text-cyan-500'}`}>{memory.isPinned ? <PinOff size={18} /> : <Pin size={18} />}</button>
-                        <button onClick={(e) => { e.stopPropagation(); onDelete(memory.id); }} className="p-2 rounded-full text-gray-400 hover:text-red-500"><Trash2 size={18} /></button>
+                    <div className="flex justify-between items-center pt-1">
+                        <div className="flex items-center gap-1">
+                            <button onClick={(e) => onSetReminder(e, memory)} className={`p-2 rounded-full transition-all ${memory.reminder ? 'text-secondary bg-secondary/10' : 'text-gray-400 hover:text-secondary'}`}><Bell size={18} fill={memory.reminder ? "currentColor" : "none"} /></button>
+                            <button onClick={(e) => onReAnalyze(e, memory)} disabled={isPending} className={`p-2 rounded-full transition-all ${isPending ? 'text-yellow-500/50' : 'text-gray-400 hover:text-yellow-500'}`}><Sparkles size={18} className={isPending ? 'animate-pulse' : ''} /></button>
+                            <button onClick={(e) => onExportPDF(e, memory)} disabled={isPending} className="p-2 rounded-full text-gray-400 hover:text-blue-500"><FileDown size={18} /></button>
+                            <button onClick={(e) => onToggleFavorite(e, memory.id)} className={`p-2 rounded-full transition-all ${memory.isFavorite ? 'text-yellow-400 bg-yellow-400/10' : 'text-gray-400 hover:text-yellow-400'}`}><Star size={18} fill={memory.isFavorite ? "currentColor" : "none"} /></button>
+                            <button onClick={(e) => onTogglePin(e, memory.id)} className={`p-2 rounded-full transition-all ${memory.isPinned ? 'text-cyan-500 bg-cyan-100 dark:bg-cyan-500/10' : 'text-gray-400 hover:text-cyan-500'}`}>{memory.isPinned ? <PinOff size={18} /> : <Pin size={18} />}</button>
+                            <button onClick={(e) => { e.stopPropagation(); onDelete(memory.id); }} className="p-2 rounded-full text-gray-400 hover:text-red-500"><Trash2 size={18} /></button>
+                        </div>
+                        {!isPending && <button className="flex items-center gap-1.5 text-xs text-primary font-medium">{isExpanded ? <><span className="text-[10px]">إغلاق</span><ChevronUp size={14} /></> : <><span className="text-[10px]">المزيد</span><ChevronDown size={14} /></>}</button>}
                     </div>
-                    {!isPending && <button className="flex items-center gap-1.5 text-xs text-primary font-medium">{isExpanded ? <><span className="text-[10px]">إغلاق</span><ChevronUp size={14} /></> : <><span className="text-[10px]">المزيد</span><ChevronDown size={14} /></>}</button>}
                 </div>
-            </div>
+            )}
             {memory.type === MediaType.AUDIO && <audio id={`audio-${memory.id}`} src={memory.content} className="hidden" />}
         </div>
     );
@@ -240,6 +271,10 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
   const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(null);
   const [reminderDate, setReminderDate] = useState("");
   const [reminderFreq, setReminderFreq] = useState<ReminderFrequency>('ONCE');
+
+  // Selection Mode State
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const [printableMemories, setPrintableMemories] = useState<MemoryItem[] | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -344,6 +379,40 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
   const exportJSON = async () => { const all = await getMemories(); downloadFile(JSON.stringify(all, null, 2), `thakira_backup_${Date.now()}.json`, 'application/json'); };
   const exportCSV = async () => { const all = await getMemories(); let csv = "\uFEFFID,Date,Type,Summary,Tags,Transcription\n"; all.forEach(m => csv += `"${m.id}","${new Date(m.createdAt).toLocaleDateString()}","${m.type}","${(m.summary||"").replace(/"/g,'""')}","${m.tags?.join(";")||""}","${(m.transcription||"").replace(/"/g,'""')}"\n`); downloadFile(csv, `thakira_report_${Date.now()}.csv`, 'text/csv'); };
 
+  // Selection Logic
+  const toggleSelectionMode = () => {
+    setIsSelectionMode(!isSelectionMode);
+    setSelectedIds(new Set());
+    setShowMenu(false);
+  };
+
+  const handleSelectMemory = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
+  const handleBulkExport = () => {
+    if (selectedIds.size === 0) return;
+    const selected = memories.filter(m => selectedIds.has(m.id));
+    setPrintableMemories(selected);
+    setIsSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkDelete = async () => {
+      if (selectedIds.size === 0) return;
+      if (!confirm(`هل أنت متأكد من حذف ${selectedIds.size} عنصر؟`)) return;
+      
+      for (const id of selectedIds) {
+          await deleteMemory(id);
+      }
+      setMemories(prev => prev.filter(m => !selectedIds.has(m.id)));
+      setIsSelectionMode(false);
+      setSelectedIds(new Set());
+  };
+
   const FilterButton = ({ type, label, icon: Icon }: { type: MediaType | 'ALL', label: string, icon: any }) => (
       <button onClick={() => setFilterType(type)} title={label} className={`flex items-center justify-center w-9 h-9 rounded-full transition-all duration-300 ${filterType === type ? 'bg-primary text-white shadow-md scale-110 z-10' : 'bg-white/50 dark:bg-white/5 text-gray-500 hover:text-primary hover:bg-white dark:hover:bg-white/10'}`}><Icon size={16} /></button>
   );
@@ -366,9 +435,15 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
                     <>
                         <h2 className="text-xl font-bold text-foreground">شريط الذكريات</h2>
                         <div className="flex items-center gap-2">
-                            <button onClick={() => setIsSearchOpen(true)} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500 dark:text-gray-300"><Search size={20} /></button>
-                            <span className="text-xs text-gray-500 bg-gray-100 dark:bg-white/5 px-2 py-1 rounded-md font-mono">{memories.length}</span>
-                            <button onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500 dark:text-gray-300"><MoreVertical size={20} /></button>
+                            {isSelectionMode ? (
+                                <button onClick={() => setIsSelectionMode(false)} className="px-3 py-1.5 bg-gray-100 dark:bg-white/5 rounded-lg text-sm font-bold text-gray-500">إلغاء</button>
+                            ) : (
+                                <>
+                                    <button onClick={() => setIsSearchOpen(true)} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500 dark:text-gray-300"><Search size={20} /></button>
+                                    <span className="text-xs text-gray-500 bg-gray-100 dark:bg-white/5 px-2 py-1 rounded-md font-mono">{memories.length}</span>
+                                    <button onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500 dark:text-gray-300"><MoreVertical size={20} /></button>
+                                </>
+                            )}
                         </div>
                     </>
                 )}
@@ -408,24 +483,73 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
                     <button onClick={() => setSortBy('DATE')} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-gray-100 dark:hover:bg-white/5 rounded-lg"><Clock size={16} /> الأحدث</button>
                     <button onClick={() => setSortBy('FAVORITES')} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-gray-100 dark:hover:bg-white/5 rounded-lg"><Star size={16} /> المفضلة</button>
                     <div className="h-px bg-gray-100 dark:bg-white/5 my-1" />
-                    <button onClick={(e) => handleExportPDF(e)} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-gray-100 dark:hover:bg-white/5 rounded-lg"><FileDown size={16} /> تصدير PDF</button>
+                    <button onClick={toggleSelectionMode} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-gray-100 dark:hover:bg-white/5 rounded-lg"><CheckSquare size={16} /> تحديد عناصر</button>
+                    <button onClick={(e) => handleExportPDF(e)} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-gray-100 dark:hover:bg-white/5 rounded-lg"><FileDown size={16} /> تصدير الكل PDF</button>
                 </div>
             )}
         </div>
         
         {/* List */}
-        <div className="flex-1 overflow-y-auto p-4 pb-24 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 pb-32 space-y-4">
             {loading && memories.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20 gap-4"><Loader2 className="animate-spin text-primary" size={32} /><p className="text-gray-500 text-sm">جاري التحميل...</p></div>
             ) : memories.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20 text-gray-400"><Search size={48} className="mb-4 stroke-1" /><p>لا توجد ذكريات.</p></div>
             ) : (
                 <>
-                    {memories.map((mem) => <MemoryCard key={mem.id} id={`memory-card-${mem.id}`} memory={mem} isPlaying={playingId === mem.id} onTogglePlay={togglePlay} onToggleFavorite={handleToggleFavorite} onTogglePin={handleTogglePin} onDelete={handleDelete} onSetReminder={openReminderModal} onExportPDF={handleExportPDF} onReAnalyze={handleReAnalyze} isHighlighted={highlightedMemoryId === mem.id} />)}
+                    {memories.map((mem) => (
+                        <MemoryCard 
+                            key={mem.id} 
+                            id={`memory-card-${mem.id}`} 
+                            memory={mem} 
+                            isPlaying={playingId === mem.id} 
+                            onTogglePlay={togglePlay} 
+                            onToggleFavorite={handleToggleFavorite} 
+                            onTogglePin={handleTogglePin} 
+                            onDelete={handleDelete} 
+                            onSetReminder={openReminderModal} 
+                            onExportPDF={handleExportPDF} 
+                            onReAnalyze={handleReAnalyze} 
+                            isHighlighted={highlightedMemoryId === mem.id}
+                            isSelectionMode={isSelectionMode}
+                            isSelected={selectedIds.has(mem.id)}
+                            onSelect={handleSelectMemory}
+                        />
+                    ))}
                     <div ref={observerTarget} className="h-20 flex items-center justify-center">{loadingMore && <Loader2 className="animate-spin text-gray-500" size={24} />}</div>
                 </>
             )}
         </div>
+
+        {/* Selection Action Bar */}
+        {isSelectionMode && (
+            <div className="fixed bottom-24 left-4 right-4 z-40 animate-in slide-in-from-bottom-10 duration-300">
+                <div className="bg-white dark:bg-card border border-gray-200 dark:border-white/10 rounded-2xl shadow-2xl p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <span className="bg-primary text-white text-xs font-bold px-3 py-1 rounded-lg shadow-sm">{selectedIds.size}</span>
+                        <span className="text-sm font-bold text-gray-500">عنصر محدد</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                         <button 
+                            onClick={handleBulkDelete}
+                            disabled={selectedIds.size === 0}
+                            className="flex items-center gap-2 px-4 py-2 bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 rounded-xl font-bold text-xs disabled:opacity-50"
+                         >
+                             <Trash2 size={16} />
+                             حذف
+                         </button>
+                         <button 
+                            onClick={handleBulkExport}
+                            disabled={selectedIds.size === 0}
+                            className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl font-bold text-xs shadow-lg shadow-primary/20 disabled:opacity-50"
+                         >
+                             <FileDown size={16} />
+                             تصدير PDF
+                         </button>
+                    </div>
+                </div>
+            </div>
+        )}
       </div>
 
        {/* Reminder Modal */}
@@ -445,20 +569,74 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
             </div>
         )}
 
-        {/* Print Template & Export Progress ... (Kept minimal for brevity, logic remains) */}
+        {/* Print Template & Export Progress */}
         {isExporting && (
              <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200 print:hidden">
                  <div className="bg-white dark:bg-card w-full max-w-xs p-6 rounded-2xl border border-gray-200 dark:border-white/10 shadow-2xl text-center space-y-5">
                      <FileDown size={32} className="mx-auto text-primary animate-bounce" />
-                     <h3 className="text-lg font-bold text-foreground">جاري تحضير الملف...</h3>
-                     <div className="h-2 w-full bg-gray-200 dark:bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-primary" style={{ width: `${exportProgress}%` }} /></div>
+                     <div>
+                        <h3 className="text-lg font-bold text-foreground">جاري تحضير الملف...</h3>
+                        <p className="text-sm text-gray-500 mt-1">يرجى الانتظار بينما نقوم بمعالجة الصور والنصوص</p>
+                     </div>
+                     <div className="relative pt-1">
+                        <div className="flex mb-2 items-center justify-between">
+                            <span className="text-xs font-semibold inline-block text-primary">المعالجة</span>
+                            <span className="text-xs font-semibold inline-block text-primary">{exportProgress}%</span>
+                        </div>
+                        <div className="h-2 w-full bg-gray-100 dark:bg-white/10 rounded-full overflow-hidden">
+                            <div className="h-full bg-primary transition-all duration-300 ease-out" style={{ width: `${exportProgress}%` }} />
+                        </div>
+                     </div>
                  </div>
              </div>
         )}
         {printableMemories && (
-            <div id="print-container" className="hidden print:block fixed inset-0 bg-white z-[9999] overflow-visible">
-                <div className="text-center border-b pb-4 mb-6"><h1 className="text-3xl font-bold">تقرير الذكريات</h1></div>
-                <div className="space-y-6">{printableMemories.map((item) => <div key={item.id} className="page-break border rounded p-6"><h3>{item.summary}</h3><p>{item.transcription || item.content}</p></div>)}</div>
+            <div id="print-container" className="hidden print:block fixed inset-0 bg-white z-[9999] overflow-visible text-black p-8">
+                <div className="text-center border-b-2 border-gray-300 pb-6 mb-8">
+                    <h1 className="text-4xl font-bold mb-2">تقرير الذكريات</h1>
+                    <p className="text-gray-500">تم الاستخراج بتاريخ {new Date().toLocaleDateString('ar-SA')}</p>
+                </div>
+                <div className="space-y-8">
+                    {printableMemories.map((item) => (
+                        <div key={item.id} className="page-break border border-gray-200 rounded-xl p-6 bg-gray-50">
+                            <div className="flex justify-between items-start mb-4">
+                                <div>
+                                    <h3 className="text-xl font-bold mb-1">{item.summary || "بدون عنوان"}</h3>
+                                    <div className="flex items-center gap-3 text-sm text-gray-500">
+                                        <span>{new Date(item.createdAt).toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                                        <span>•</span>
+                                        <span className="font-bold">{item.type}</span>
+                                    </div>
+                                </div>
+                                {item.isFavorite && <span className="text-yellow-500 text-2xl">★</span>}
+                            </div>
+                            
+                            {/* Content */}
+                            <div className="mb-4 text-gray-800 leading-relaxed text-justify whitespace-pre-wrap">
+                                {item.transcription || item.content}
+                            </div>
+
+                            {/* Media Thumbnail for Image */}
+                            {item.type === MediaType.IMAGE && (
+                                <div className="mb-4 w-full max-h-64 overflow-hidden rounded-lg border border-gray-300">
+                                    <img src={item.content} className="w-full h-full object-cover" alt="Memory" />
+                                </div>
+                            )}
+
+                            {/* Tags */}
+                            {item.tags && item.tags.length > 0 && (
+                                <div className="flex gap-2 mt-4">
+                                    {item.tags.map((tag, i) => (
+                                        <span key={i} className="bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs">#{tag}</span>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+                <div className="mt-8 pt-4 border-t border-gray-300 text-center text-xs text-gray-400">
+                    تم الإنشاء بواسطة تطبيق الذاكرة الذكية
+                </div>
             </div>
         )}
     </div>

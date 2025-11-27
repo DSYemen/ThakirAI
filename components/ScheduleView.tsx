@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { getAllReminders, saveMemory } from '../services/db';
-import { MemoryItem, MediaType, TaskCategory } from '../types';
-import { Calendar, Clock, CheckCircle2, Circle, AlertCircle, X, Check, Layers, Tag, Briefcase, Heart, User, DollarSign, PartyPopper, Hash } from 'lucide-react';
+import { generateGoogleCalendarLink, openCalendarSearch } from '../services/calendarService';
+import { MemoryItem, MediaType, TaskCategory, ReminderFrequency } from '../types';
+import { Calendar, Clock, CheckCircle2, Circle, AlertCircle, X, Check, Layers, Tag, Briefcase, Heart, User, DollarSign, PartyPopper, Hash, Palette, Plus, CalendarPlus, Search } from 'lucide-react';
 
 interface TaskGroup {
     overdue: MemoryItem[];
@@ -19,14 +20,16 @@ interface TaskCardProps {
     onEditCategory: (task: MemoryItem) => void;
 }
 
-const CATEGORY_STYLES: Record<string, { bg: string, border: string, text: string, iconBg: string }> = {
-    blue: { bg: 'bg-blue-50 dark:bg-blue-500/5', border: 'border-blue-200 dark:border-blue-500/20', text: 'text-blue-700 dark:text-blue-300', iconBg: 'bg-blue-100 dark:bg-blue-500/20' },
-    red: { bg: 'bg-red-50 dark:bg-red-500/5', border: 'border-red-200 dark:border-red-500/20', text: 'text-red-700 dark:text-red-300', iconBg: 'bg-red-100 dark:bg-red-500/20' },
-    green: { bg: 'bg-green-50 dark:bg-green-500/5', border: 'border-green-200 dark:border-green-500/20', text: 'text-green-700 dark:text-green-300', iconBg: 'bg-green-100 dark:bg-green-500/20' },
-    yellow: { bg: 'bg-yellow-50 dark:bg-yellow-500/5', border: 'border-yellow-200 dark:border-yellow-500/20', text: 'text-yellow-700 dark:text-yellow-300', iconBg: 'bg-yellow-100 dark:bg-yellow-500/20' },
-    purple: { bg: 'bg-purple-50 dark:bg-purple-500/5', border: 'border-purple-200 dark:border-purple-500/20', text: 'text-purple-700 dark:text-purple-300', iconBg: 'bg-purple-100 dark:bg-purple-500/20' },
-    gray: { bg: 'bg-gray-50 dark:bg-white/5', border: 'border-gray-100 dark:border-white/10', text: 'text-gray-700 dark:text-gray-300', iconBg: 'bg-gray-200 dark:bg-white/10' },
+const CATEGORY_STYLES: Record<string, { bg: string, border: string, text: string, iconBg: string, ring: string }> = {
+    blue: { bg: 'bg-blue-50 dark:bg-blue-500/5', border: 'border-blue-200 dark:border-blue-500/20', text: 'text-blue-700 dark:text-blue-300', iconBg: 'bg-blue-100 dark:bg-blue-500/20', ring: 'ring-blue-500' },
+    red: { bg: 'bg-red-50 dark:bg-red-500/5', border: 'border-red-200 dark:border-red-500/20', text: 'text-red-700 dark:text-red-300', iconBg: 'bg-red-100 dark:bg-red-500/20', ring: 'ring-red-500' },
+    green: { bg: 'bg-green-50 dark:bg-green-500/5', border: 'border-green-200 dark:border-green-500/20', text: 'text-green-700 dark:text-green-300', iconBg: 'bg-green-100 dark:bg-green-500/20', ring: 'ring-green-500' },
+    yellow: { bg: 'bg-yellow-50 dark:bg-yellow-500/5', border: 'border-yellow-200 dark:border-yellow-500/20', text: 'text-yellow-700 dark:text-yellow-300', iconBg: 'bg-yellow-100 dark:bg-yellow-500/20', ring: 'ring-yellow-500' },
+    purple: { bg: 'bg-purple-50 dark:bg-purple-500/5', border: 'border-purple-200 dark:border-purple-500/20', text: 'text-purple-700 dark:text-purple-300', iconBg: 'bg-purple-100 dark:bg-purple-500/20', ring: 'ring-purple-500' },
+    gray: { bg: 'bg-gray-50 dark:bg-white/5', border: 'border-gray-100 dark:border-white/10', text: 'text-gray-700 dark:text-gray-300', iconBg: 'bg-gray-200 dark:bg-white/10', ring: 'ring-gray-400' },
 };
+
+const COLORS = ['blue', 'red', 'green', 'yellow', 'purple', 'gray'] as const;
 
 const TaskCard: React.FC<TaskCardProps> = ({ item, isOverdue = false, onComplete, onEditCategory }) => {
     const formatTime = (ts: number) => {
@@ -121,11 +124,20 @@ export const ScheduleView: React.FC = () => {
   // Completion Modal
   const [selectedTask, setSelectedTask] = useState<MemoryItem | null>(null);
   const [note, setNote] = useState("");
+  const [syncCompleteToCalendar, setSyncCompleteToCalendar] = useState(false);
   const [showCompleteModal, setShowCompleteModal] = useState(false);
 
   // Category Modal
   const [taskToCategorize, setTaskToCategorize] = useState<MemoryItem | null>(null);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [pendingCategory, setPendingCategory] = useState<TaskCategory | null>(null);
+
+  // Add Task Modal
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newTaskSummary, setNewTaskSummary] = useState("");
+  const [newTaskDate, setNewTaskDate] = useState("");
+  const [newTaskFreq, setNewTaskFreq] = useState<ReminderFrequency>('ONCE');
+  const [syncAddToCalendar, setSyncAddToCalendar] = useState(true);
 
   useEffect(() => { loadTasks(); }, []);
 
@@ -154,13 +166,35 @@ export const ScheduleView: React.FC = () => {
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
-  const initiateComplete = (task: MemoryItem) => { setSelectedTask(task); setNote(""); setShowCompleteModal(true); };
-  const initiateCategorize = (task: MemoryItem) => { setTaskToCategorize(task); setShowCategoryModal(true); };
+  const initiateComplete = (task: MemoryItem) => { setSelectedTask(task); setNote(""); setSyncCompleteToCalendar(false); setShowCompleteModal(true); };
+  
+  const initiateCategorize = (task: MemoryItem) => { 
+      setTaskToCategorize(task); 
+      setPendingCategory(task.category || PRESET_CATEGORIES[5]); // Default to General
+      setShowCategoryModal(true); 
+  };
+
+  const initiateAddTask = () => {
+      setNewTaskSummary("");
+      // Default to today + 1 hour
+      const now = new Date();
+      now.setMinutes(now.getMinutes() + 60);
+      now.setMinutes(0, 0, 0); // round to hour
+      setNewTaskDate(new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16));
+      setNewTaskFreq('ONCE');
+      setSyncAddToCalendar(true);
+      setShowAddModal(true);
+  };
 
   const confirmComplete = async () => {
     if (!selectedTask) return;
     const originalTask = selectedTask;
     const isRecurring = originalTask.reminder && originalTask.reminder.frequency !== 'ONCE';
+
+    // If requested, open Calendar Search to let user update/delete the external event
+    if (syncCompleteToCalendar && originalTask.summary) {
+        openCalendarSearch(originalTask.summary);
+    }
 
     if (isRecurring && originalTask.reminder) {
         const now = Date.now();
@@ -184,9 +218,39 @@ export const ScheduleView: React.FC = () => {
     setShowCompleteModal(false); loadTasks();
   };
 
-  const applyCategory = async (category: TaskCategory) => {
-      if (!taskToCategorize) return;
-      const updated = { ...taskToCategorize, category };
+  const handleAddTask = async () => {
+      if (!newTaskSummary.trim() || !newTaskDate) return;
+      const id = crypto.randomUUID();
+      const memory: MemoryItem = {
+          id,
+          type: MediaType.TEXT,
+          content: newTaskSummary,
+          transcription: newTaskSummary,
+          summary: newTaskSummary,
+          createdAt: Date.now(),
+          tags: ['يدوي', 'موعد'],
+          reminder: {
+              timestamp: new Date(newTaskDate).getTime(),
+              frequency: newTaskFreq
+          },
+          category: PRESET_CATEGORIES[5], // Default General
+          isFavorite: false,
+          isPinned: false
+      };
+
+      await saveMemory(memory);
+      
+      if (syncAddToCalendar) {
+          generateGoogleCalendarLink(memory);
+      }
+
+      setShowAddModal(false);
+      loadTasks();
+  };
+
+  const saveCategory = async () => {
+      if (!taskToCategorize || !pendingCategory) return;
+      const updated = { ...taskToCategorize, category: pendingCategory };
       await saveMemory(updated);
       setShowCategoryModal(false);
       loadTasks();
@@ -222,8 +286,14 @@ export const ScheduleView: React.FC = () => {
                     <h2 className="text-xl font-bold text-foreground">مواعيدي</h2>
                     <p className="text-xs text-gray-500">{new Date().toLocaleDateString('ar-SA', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
                 </div>
-                <div className="p-2 bg-primary/10 rounded-xl text-primary">
-                    <Calendar size={20} />
+                <div className="flex items-center gap-2">
+                    <button onClick={initiateAddTask} className="p-2 bg-primary text-white rounded-xl shadow-lg shadow-primary/20 hover:scale-105 transition-transform flex items-center gap-1">
+                        <Plus size={20} />
+                        <span className="text-xs font-bold hidden sm:inline">إضافة</span>
+                    </button>
+                    <div className="p-2 bg-primary/10 rounded-xl text-primary">
+                        <Calendar size={20} />
+                    </div>
                 </div>
            </div>
 
@@ -267,6 +337,7 @@ export const ScheduleView: React.FC = () => {
                             <Check size={32} />
                         </div>
                         <p className="text-sm">جدولك فارغ تماماً!</p>
+                        <button onClick={initiateAddTask} className="mt-4 text-primary font-bold text-sm hover:underline">إضافة مهمة جديدة</button>
                     </div>
                 )}
 
@@ -341,6 +412,23 @@ export const ScheduleView: React.FC = () => {
                     <p className="text-sm text-gray-500 line-clamp-1">{selectedTask?.summary}</p>
                 </div>
                 <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="إضافة ملاحظة إنجاز (اختياري)..." className="w-full h-24 bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-sm focus:outline-none focus:border-green-500 resize-none mb-4 text-foreground" />
+                
+                {/* Google Calendar Sync Checkbox */}
+                <div className="flex items-center gap-3 mb-4 p-3 bg-gray-50 dark:bg-black/20 rounded-xl">
+                    <input 
+                        type="checkbox" 
+                        id="syncComplete" 
+                        checked={syncCompleteToCalendar} 
+                        onChange={e => setSyncCompleteToCalendar(e.target.checked)}
+                        className="w-5 h-5 accent-green-500 rounded-md"
+                    />
+                    <label htmlFor="syncComplete" className="text-xs text-gray-600 dark:text-gray-300 font-medium cursor-pointer flex-1">
+                        فتح تقويم جوجل للتحديث
+                        <span className="block text-[9px] text-gray-400 font-normal">للبحث عن الحدث وحذفه أو تعديله</span>
+                    </label>
+                    <Search size={16} className="text-gray-400" />
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                     <button onClick={() => setShowCompleteModal(false)} className="py-3 rounded-xl bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300 font-bold text-sm">إلغاء</button>
                     <button onClick={confirmComplete} className="py-3 rounded-xl bg-green-500 text-white font-bold text-sm shadow-lg shadow-green-500/20">تأكيد</button>
@@ -349,11 +437,69 @@ export const ScheduleView: React.FC = () => {
         </div>
       )}
 
+      {/* Add Task Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-card w-full max-w-sm rounded-2xl border border-gray-200 dark:border-white/10 shadow-2xl overflow-hidden p-5">
+                <div className="text-center mb-4 border-b border-gray-100 dark:border-white/5 pb-4">
+                    <h3 className="text-lg font-bold text-foreground flex items-center justify-center gap-2">
+                        <Plus size={20} className="text-primary" />
+                        إضافة مهمة جديدة
+                    </h3>
+                </div>
+                
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-gray-500 mb-1.5 block">عنوان المهمة</label>
+                        <input type="text" value={newTaskSummary} onChange={e => setNewTaskSummary(e.target.value)} placeholder="مثال: موعد طبيب الأسنان" className="w-full bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-sm text-foreground focus:border-primary focus:outline-none" />
+                    </div>
+                    
+                    <div>
+                        <label className="text-xs font-bold text-gray-500 mb-1.5 block">التاريخ والوقت</label>
+                        <input type="datetime-local" value={newTaskDate} onChange={e => setNewTaskDate(e.target.value)} className="w-full bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-sm text-foreground focus:border-primary focus:outline-none" />
+                    </div>
+
+                    <div>
+                        <label className="text-xs font-bold text-gray-500 mb-1.5 block">التكرار</label>
+                        <div className="grid grid-cols-3 gap-2">
+                            {['ONCE', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].map((freq) => (
+                                <button key={freq} onClick={() => setNewTaskFreq(freq as ReminderFrequency)} className={`text-[10px] py-2 rounded-lg border transition-all ${newTaskFreq === freq ? 'bg-primary/10 border-primary text-primary font-bold' : 'bg-gray-50 dark:bg-white/5 border-transparent text-gray-500'}`}>
+                                    {freq === 'ONCE' ? 'مرة' : freq === 'DAILY' ? 'يومياً' : freq === 'WEEKLY' ? 'أسبوعياً' : freq === 'MONTHLY' ? 'شهرياً' : 'سنوياً'}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Google Calendar Add Checkbox */}
+                    <div className="flex items-center gap-3 mt-2 p-3 bg-blue-50 dark:bg-blue-500/10 rounded-xl border border-blue-100 dark:border-blue-500/20">
+                        <input 
+                            type="checkbox" 
+                            id="syncAdd" 
+                            checked={syncAddToCalendar} 
+                            onChange={e => setSyncAddToCalendar(e.target.checked)}
+                            className="w-5 h-5 accent-blue-500 rounded-md"
+                        />
+                        <label htmlFor="syncAdd" className="text-xs text-blue-800 dark:text-blue-200 font-medium cursor-pointer flex-1">
+                            إضافة إلى تقويم جوجل
+                            <span className="block text-[9px] text-blue-600 dark:text-blue-300/70 font-normal">سيتم فتح التقويم لحفظ الموعد</span>
+                        </label>
+                        <CalendarPlus size={18} className="text-blue-500" />
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 mt-6">
+                    <button onClick={() => setShowAddModal(false)} className="py-3 rounded-xl bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300 font-bold text-sm">إلغاء</button>
+                    <button onClick={handleAddTask} disabled={!newTaskSummary.trim() || !newTaskDate} className="py-3 rounded-xl bg-primary text-white font-bold text-sm shadow-lg shadow-primary/20 disabled:opacity-50">إضافة</button>
+                </div>
+            </div>
+        </div>
+      )}
+
       {/* Category Selection Modal */}
-      {showCategoryModal && (
+      {showCategoryModal && pendingCategory && (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:p-4 animate-in fade-in duration-200">
               <div className="bg-white dark:bg-card w-full sm:max-w-sm sm:rounded-2xl rounded-t-3xl border-t sm:border border-gray-200 dark:border-white/10 shadow-2xl overflow-hidden p-6 animate-in slide-in-from-bottom-10 duration-300">
-                    <div className="flex justify-between items-center mb-6">
+                    <div className="flex justify-between items-center mb-4">
                         <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
                             <Tag size={20} className="text-primary" />
                             تصنيف المهمة
@@ -361,27 +507,58 @@ export const ScheduleView: React.FC = () => {
                         <button onClick={() => setShowCategoryModal(false)} className="text-gray-400 hover:text-foreground"><X size={20} /></button>
                     </div>
                     
-                    <div className="grid grid-cols-2 gap-3">
-                        {PRESET_CATEGORIES.map(cat => {
-                            const style = CATEGORY_STYLES[cat.colorName];
-                            return (
-                                <button 
-                                    key={cat.id} 
-                                    onClick={() => applyCategory(cat)}
-                                    className={`flex items-center gap-3 p-3 rounded-xl border transition-all hover:scale-105 active:scale-95 ${style.bg} ${style.border}`}
-                                >
-                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${style.iconBg} ${style.text}`}>
-                                        {cat.iconName === 'briefcase' && <Briefcase size={16} />}
-                                        {cat.iconName === 'heart' && <Heart size={16} />}
-                                        {cat.iconName === 'user' && <User size={16} />}
-                                        {cat.iconName === 'dollar' && <DollarSign size={16} />}
-                                        {cat.iconName === 'party' && <PartyPopper size={16} />}
-                                        {cat.iconName === 'default' && <Hash size={16} />}
-                                    </div>
-                                    <span className={`text-sm font-bold ${style.text}`}>{cat.label}</span>
-                                </button>
-                            );
-                        })}
+                    <div className="space-y-4">
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 mb-2 block">نوع التصنيف</label>
+                            <div className="grid grid-cols-2 gap-3">
+                                {PRESET_CATEGORIES.map(cat => {
+                                    const style = CATEGORY_STYLES[cat.colorName];
+                                    const isSelected = pendingCategory.id === cat.id;
+                                    return (
+                                        <button 
+                                            key={cat.id} 
+                                            onClick={() => setPendingCategory({ ...pendingCategory, id: cat.id, label: cat.label, iconName: cat.iconName })}
+                                            className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${isSelected ? `ring-2 ring-primary border-transparent bg-primary/5` : 'bg-gray-50 dark:bg-white/5 border-transparent hover:bg-gray-100 dark:hover:bg-white/10'}`}
+                                        >
+                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isSelected ? 'bg-primary text-white' : 'bg-gray-200 dark:bg-white/10 text-gray-500'}`}>
+                                                {cat.iconName === 'briefcase' && <Briefcase size={16} />}
+                                                {cat.iconName === 'heart' && <Heart size={16} />}
+                                                {cat.iconName === 'user' && <User size={16} />}
+                                                {cat.iconName === 'dollar' && <DollarSign size={16} />}
+                                                {cat.iconName === 'party' && <PartyPopper size={16} />}
+                                                {cat.iconName === 'default' && <Hash size={16} />}
+                                            </div>
+                                            <span className={`text-sm font-bold ${isSelected ? 'text-primary' : 'text-gray-600 dark:text-gray-400'}`}>{cat.label}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 mb-2 block flex items-center gap-2">
+                                <Palette size={14} />
+                                لون التمييز
+                            </label>
+                            <div className="flex justify-between items-center bg-gray-50 dark:bg-black/20 p-3 rounded-xl">
+                                {COLORS.map(color => {
+                                    const style = CATEGORY_STYLES[color];
+                                    const isSelected = pendingCategory.colorName === color;
+                                    return (
+                                        <button 
+                                            key={color} 
+                                            onClick={() => setPendingCategory({ ...pendingCategory, colorName: color })}
+                                            className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${style.bg} ${isSelected ? `ring-2 ring-offset-2 ring-offset-white dark:ring-offset-slate-900 ${style.ring} scale-110` : 'hover:scale-105'}`}
+                                            title={color}
+                                        >
+                                            {isSelected && <Check size={14} className={style.text} />}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <button onClick={saveCategory} className="w-full bg-primary text-white font-bold py-3 rounded-xl mt-2">حفظ التغييرات</button>
                     </div>
               </div>
           </div>

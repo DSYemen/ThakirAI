@@ -1,3 +1,4 @@
+
 import { MemoryItem } from '../types';
 
 export const generateGoogleCalendarLink = (memory: MemoryItem) => {
@@ -29,5 +30,10 @@ export const generateGoogleCalendarLink = (memory: MemoryItem) => {
       }
   }
 
+  window.open(url, '_blank');
+};
+
+export const openCalendarSearch = (query: string) => {
+  const url = `https://calendar.google.com/calendar/r/search?q=${encodeURIComponent(query)}`;
   window.open(url, '_blank');
 };
