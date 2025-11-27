@@ -1,5 +1,5 @@
 
-import { LocalNotifications } from '@capacitor/local-notifications';
+import { LocalNotifications, ActionPerformed } from '@capacitor/local-notifications';
 import { Capacitor } from '@capacitor/core';
 import { MemoryItem } from '../types';
 
@@ -38,7 +38,7 @@ class ReminderService {
         });
 
         // Listen for actions (optional, e.g., if user taps notification)
-        LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
+        LocalNotifications.addListener('localNotificationActionPerformed', (action: ActionPerformed) => {
             console.log('Notification action performed', action);
             // Here you could navigate to the specific memory
         });
