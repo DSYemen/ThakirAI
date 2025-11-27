@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="ar" dir="rtl" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -8,13 +8,17 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
+        darkMode: 'class',
         theme: {
           extend: {
             colors: {
-              primary: '#6366f1',
-              secondary: '#a855f7',
-              dark: '#0f172a',
-              card: '#1e293b',
+              primary: '#6366f1', // Indigo 500
+              secondary: '#a855f7', // Purple 500
+              // Use CSS variables for themeable colors
+              dark: 'var(--color-bg)',
+              card: 'var(--color-card)',
+              foreground: 'var(--color-text)',
+              border: 'var(--color-border)',
             },
             fontFamily: {
               sans: ['Segoe UI', 'Tahoma', 'Geneva', 'Verdana', 'sans-serif'],
@@ -24,11 +28,29 @@
       }
     </script>
     <style>
-      body {
-        background-color: #0f172a;
-        color: white;
-        -webkit-tap-highlight-color: transparent;
+      :root {
+        /* Default Dark Theme Variables */
+        --color-bg: #0f172a;        /* Slate 900 */
+        --color-card: #1e293b;      /* Slate 800 */
+        --color-text: #f1f5f9;      /* Slate 100 */
+        --color-border: #334155;    /* Slate 700 */
       }
+
+      /* Light Theme Override - Clean & Soft */
+      html.light {
+        --color-bg: #f8fafc;        /* Slate 50 - Very light gray/white */
+        --color-card: #ffffff;      /* Pure White */
+        --color-text: #1e293b;      /* Slate 800 */
+        --color-border: #e2e8f0;    /* Slate 200 */
+      }
+
+      body {
+        background-color: var(--color-bg);
+        color: var(--color-text);
+        -webkit-tap-highlight-color: transparent;
+        transition: background-color 0.3s ease, color 0.3s ease;
+      }
+
       /* Hide scrollbar for cleaner mobile look */
       .no-scrollbar::-webkit-scrollbar {
         display: none;
@@ -38,6 +60,18 @@
         scrollbar-width: none;
       }
 
+      /* Consistent input autofill style */
+      input:-webkit-autofill,
+      input:-webkit-autofill:hover, 
+      input:-webkit-autofill:focus, 
+      textarea:-webkit-autofill,
+      textarea:-webkit-autofill:hover,
+      textarea:-webkit-autofill:focus {
+        -webkit-text-fill-color: var(--color-text);
+        -webkit-box-shadow: 0 0 0px 1000px var(--color-card) inset;
+        transition: background-color 5000s ease-in-out 0s;
+      }
+
       /* Print Specific Styles for PDF Export */
       @media print {
         @page {
@@ -45,7 +79,6 @@
           margin: 1cm;
         }
         
-        /* Reset basic styles for print */
         html, body {
           background-color: white !important;
           color: black !important;
@@ -55,16 +88,10 @@
           padding: 0 !important;
         }
 
-        /* 
-           Crucial: Use visibility hidden for everything, 
-           then visible for print container. 
-           Avoids 'display: none' on parents which kills children.
-        */
         body * {
           visibility: hidden;
         }
 
-        /* Make root and main layout wrappers visible in structure but hidden content */
         #root, main {
             visibility: visible;
             display: block !important;
@@ -73,13 +100,11 @@
             position: static !important;
         }
 
-        /* Explicitly show the print container and its children */
         #print-container, #print-container * {
           visibility: visible;
-          display: block; /* Ensure it's not hidden by Tailwind classes */
+          display: block;
         }
 
-        /* Position the print container to cover the page */
         #print-container {
           position: absolute;
           left: 0;
@@ -91,7 +116,6 @@
           background: white !important;
         }
 
-        /* Page break utilities */
         .page-break {
           break-inside: avoid;
           page-break-inside: avoid;
@@ -103,15 +127,16 @@
 <script type="importmap">
 {
   "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
     "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
-    "@capacitor/camera": "https://aistudiocdn.com/@capacitor/camera@^7.0.2",
-    "@capacitor/cli": "https://aistudiocdn.com/@capacitor/cli@^7.4.4",
     "vite": "https://aistudiocdn.com/vite@^7.2.4",
-    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1"
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
+    "@capacitor/filesystem": "https://aistudiocdn.com/@capacitor/filesystem@^7.1.5",
+    "@capacitor/cli": "https://aistudiocdn.com/@capacitor/cli@^7.4.4",
+    "@capacitor/camera": "https://aistudiocdn.com/@capacitor/camera@^7.0.2"
   }
 }
 </script>

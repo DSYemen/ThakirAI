@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Send, Sparkles, Bot, Search as SearchIcon, Calendar, ArrowUpRight, Play, Video, Image as ImageIcon, FileText, X, ChevronDown, ChevronUp, Clock, Trash2, History, Mic, MicOff, AlignRight, LayoutList, ExternalLink } from 'lucide-react';
+import { Send, Sparkles, Bot, Search as SearchIcon, Calendar, ArrowUpRight, Play, Video, Image as ImageIcon, FileText, X, ChevronDown, ChevronUp, Clock, Trash2, History, Mic, MicOff, AlignRight, LayoutList, ExternalLink, Loader2 } from 'lucide-react';
 import { getMemories } from '../services/db';
 import { smartSearch } from '../services/geminiService';
 import { MediaType, SearchResult, MemoryItem } from '../types';
@@ -17,364 +17,108 @@ export const SearchView: React.FC<SearchViewProps> = ({ onJumpToMemory }) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
 
-  // Load history on mount
-  useEffect(() => {
-    const savedHistory = localStorage.getItem('thakira_search_history');
-    if (savedHistory) {
-      setSearchHistory(JSON.parse(savedHistory));
-    }
-  }, []);
-
-  const saveToHistory = (newQuery: string) => {
-    const trimmed = newQuery.trim();
-    if (!trimmed) return;
-    
-    // Remove duplicate if exists, add to top, keep max 10
-    const updated = [trimmed, ...searchHistory.filter(h => h !== trimmed)].slice(0, 10);
-    setSearchHistory(updated);
-    localStorage.setItem('thakira_search_history', JSON.stringify(updated));
-  };
-
-  const deleteFromHistory = (e: React.MouseEvent, itemToDelete: string) => {
-    e.stopPropagation();
-    const updated = searchHistory.filter(item => item !== itemToDelete);
-    setSearchHistory(updated);
-    localStorage.setItem('thakira_search_history', JSON.stringify(updated));
-  };
-
-  const clearHistory = () => {
-    if (confirm("هل تريد مسح سجل البحث بالكامل؟")) {
-      setSearchHistory([]);
-      localStorage.removeItem('thakira_search_history');
-    }
-  };
+  useEffect(() => { const h = localStorage.getItem('thakira_search_history'); if (h) setSearchHistory(JSON.parse(h)); }, []);
+  const saveToHistory = (q: string) => { const trim = q.trim(); if(!trim) return; const up = [trim, ...searchHistory.filter(h => h !== trim)].slice(0, 10); setSearchHistory(up); localStorage.setItem('thakira_search_history', JSON.stringify(up)); };
+  const deleteFromHistory = (e: React.MouseEvent, i: string) => { e.stopPropagation(); const up = searchHistory.filter(item => item !== i); setSearchHistory(up); localStorage.setItem('thakira_search_history', JSON.stringify(up)); };
+  const clearHistory = () => { if (confirm("مسح السجل؟")) { setSearchHistory([]); localStorage.removeItem('thakira_search_history'); } };
 
   const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
-    if (e) e.preventDefault();
-    
-    const textToSearch = overrideQuery || query;
-    if (!textToSearch.trim()) return;
-
-    if (overrideQuery) setQuery(overrideQuery);
-
-    setIsSearching(true);
-    setResponse("");
-    setResults([]);
-    setExpandedId(null);
-    saveToHistory(textToSearch); // Save to history
-
+    if (e) e.preventDefault(); const text = overrideQuery || query; if (!text.trim()) return;
+    if (overrideQuery) setQuery(overrideQuery); setIsSearching(true); setResponse(""); setResults([]); setExpandedId(null); saveToHistory(text);
     try {
-      const memories = await getMemories();
-      const recentMemories = memories.slice(0, 50); // Search in last 50 memories for performance
-      const { answer, results: rawResults } = await smartSearch(textToSearch, recentMemories);
-      
+      const memories = await getMemories(); const recent = memories.slice(0, 50);
+      const { answer, results: raw } = await smartSearch(text, recent);
       setResponse(answer);
-      
-      const mappedResults: SearchResult[] = rawResults.map(r => {
-          const item = memories.find(m => m.id === r.id);
-          if (!item) return null;
-          return {
-              item,
-              score: r.score,
-              relevanceReason: r.reason
-          };
-      }).filter(Boolean) as SearchResult[];
-
-      setResults(mappedResults);
-
-    } catch (err) {
-      setResponse("عذراً، حدث خطأ أثناء الاتصال بالمساعد الذكي.");
-    } finally {
-      setIsSearching(false);
-    }
+      const mapped = raw.map(r => { const item = memories.find(m => m.id === r.id); return item ? { item, score: r.score, relevanceReason: r.reason } : null; }).filter(Boolean) as SearchResult[];
+      setResults(mapped);
+    } catch (err) { setResponse("خطأ في الاتصال."); } finally { setIsSearching(false); }
   };
 
   const handleVoiceSearch = () => {
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-        alert("متصفحك لا يدعم خاصية البحث الصوتي.");
-        return;
-    }
-    
-    // Use type assertion for SpeechRecognition to avoid TS errors
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) return alert("غير مدعوم");
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'ar-SA';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-
-    recognition.onstart = () => {
-        setIsListening(true);
-    };
-
-    recognition.onend = () => {
-        setIsListening(false);
-    };
-
-    recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        if (transcript) {
-            setQuery(transcript);
-            handleSearch(undefined, transcript);
-        }
-    };
-
-    recognition.onerror = (event: any) => {
-        console.error("Speech recognition error", event.error);
-        setIsListening(false);
-    };
-
-    recognition.start();
+    const rec = new SpeechRecognition(); rec.lang = 'ar-SA'; rec.interimResults = false; rec.maxAlternatives = 1;
+    rec.onstart = () => setIsListening(true); rec.onend = () => setIsListening(false);
+    rec.onresult = (e: any) => { const t = e.results[0][0].transcript; if (t) { setQuery(t); handleSearch(undefined, t); } };
+    rec.start();
   };
 
-  const clearSearch = () => {
-      setQuery("");
-      setResponse("");
-      setResults([]);
-  };
-
-  const toggleExpand = (id: string) => {
-      setExpandedId(expandedId === id ? null : id);
-  };
-
-  const getIcon = (type: MediaType) => {
-      switch(type) {
-          case MediaType.AUDIO: return <Play size={14} />;
-          case MediaType.VIDEO: return <Video size={14} />;
-          case MediaType.IMAGE: return <ImageIcon size={14} />;
-          default: return <FileText size={14} />;
-      }
-  };
-
-  const getColor = (type: MediaType) => {
-      switch(type) {
-          case MediaType.AUDIO: return 'text-blue-400 bg-blue-400/10';
-          case MediaType.VIDEO: return 'text-red-400 bg-red-400/10';
-          case MediaType.IMAGE: return 'text-purple-400 bg-purple-400/10';
-          default: return 'text-green-400 bg-green-400/10';
-      }
-  };
+  const getIcon = (type: MediaType) => { switch(type) { case MediaType.AUDIO: return <Play size={16} />; case MediaType.VIDEO: return <Video size={16} />; case MediaType.IMAGE: return <ImageIcon size={16} />; default: return <FileText size={16} />; } };
+  const getStyles = (type: MediaType) => { switch(type) { case MediaType.AUDIO: return {t:'text-blue-500', b:'bg-blue-50 dark:bg-blue-500/10'}; case MediaType.VIDEO: return {t:'text-red-500', b:'bg-red-50 dark:bg-red-500/10'}; case MediaType.IMAGE: return {t:'text-purple-500', b:'bg-purple-50 dark:bg-purple-500/10'}; default: return {t:'text-green-500', b:'bg-green-50 dark:bg-green-500/10'}; } };
 
   return (
-    <div className="flex flex-col h-full bg-dark">
-      {/* Content Area */}
+    <div className="flex flex-col h-full bg-dark relative">
       <div className="flex-1 overflow-y-auto no-scrollbar p-4 flex flex-col items-center pb-32">
-        
         {!response && !isSearching && (
             <div className="mt-8 w-full max-w-sm space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                
-                {/* Header (Only show if no results yet) */}
                 <div className="text-center space-y-2">
-                    <div className="inline-block p-4 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-white/5 shadow-2xl shadow-purple-500/10">
-                        <Sparkles size={32} className="text-purple-300" />
+                    <div className="inline-block p-4 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-500/20 dark:to-purple-500/20 border border-indigo-200 dark:border-white/5 shadow-xl">
+                        <Sparkles size={32} className="text-purple-500 dark:text-purple-300" />
                     </div>
-                    <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-                        المساعد الذكي
-                    </h2>
+                    <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-800 to-gray-600 dark:from-white dark:to-gray-400">المساعد الذكي</h2>
                 </div>
-
-                {/* History Section */}
                 {searchHistory.length > 0 && (
                     <div className="w-full">
                          <div className="flex items-center justify-between mb-3 px-2">
-                            <h3 className="text-xs font-bold text-gray-500 flex items-center gap-1.5">
-                                <History size={14} />
-                                سجل البحث
-                            </h3>
-                            <button onClick={clearHistory} className="text-[10px] text-red-400/70 hover:text-red-400">
-                                مسح الكل
-                            </button>
+                            <h3 className="text-xs font-bold text-gray-500 flex items-center gap-1.5"><History size={14} /> سجل البحث</h3>
+                            <button onClick={clearHistory} className="text-[10px] text-red-500/70 hover:text-red-500">مسح الكل</button>
                         </div>
                         <div className="flex flex-col gap-2">
                             {searchHistory.map((item, i) => (
-                                <div 
-                                    key={i}
-                                    onClick={() => handleSearch(undefined, item)}
-                                    className="group flex items-center justify-between bg-white/5 hover:bg-white/10 border border-white/5 p-3 rounded-xl cursor-pointer transition-colors"
-                                >
-                                    <div className="flex items-center gap-3 text-sm text-gray-300">
-                                        <Clock size={14} className="text-gray-500" />
-                                        <span className="line-clamp-1">{item}</span>
-                                    </div>
-                                    <button 
-                                        onClick={(e) => deleteFromHistory(e, item)}
-                                        className="text-gray-600 hover:text-red-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                                    >
-                                        <Trash2 size={14} />
-                                    </button>
+                                <div key={i} onClick={() => handleSearch(undefined, item)} className="group flex items-center justify-between bg-white dark:bg-card border border-gray-200 dark:border-white/5 p-3 rounded-xl cursor-pointer transition-colors shadow-sm">
+                                    <div className="flex items-center gap-3 text-sm text-gray-700 dark:text-gray-300"><Clock size={14} className="text-gray-400" /><span className="line-clamp-1">{item}</span></div>
+                                    <button onClick={(e) => deleteFromHistory(e, item)} className="text-gray-400 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100"><Trash2 size={14} /></button>
                                 </div>
                             ))}
                         </div>
                     </div>
                 )}
-
-                {/* Suggestions Section */}
-                <div className="w-full">
-                    <h3 className="text-xs font-bold text-gray-500 mb-3 px-2">مقترحات لك</h3>
-                    <div className="grid grid-cols-1 gap-2 w-full text-sm">
-                        {["لخص لي الأسبوع الماضي", "ماذا قلت في الاجتماع الصوتي؟", "ابحث عن صورة في الحديقة"].map((suggestion, i) => (
-                            <button 
-                                key={i}
-                                onClick={() => handleSearch(undefined, suggestion)}
-                                className="bg-card/30 hover:bg-card border border-white/5 p-3 rounded-xl text-gray-400 hover:text-white transition-colors text-right"
-                            >
-                                {suggestion}
-                            </button>
-                        ))}
-                    </div>
-                </div>
             </div>
         )}
 
-        {/* Loading State */}
-        {isSearching && (
-             <div className="flex flex-col items-center gap-4 mt-20">
-                 <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin"></div>
-                 <p className="text-sm text-gray-400 animate-pulse">جاري البحث والتحليل...</p>
-             </div>
-        )}
+        {isSearching && <div className="flex flex-col items-center gap-4 mt-20"><Loader2 size={40} className="animate-spin text-primary" /><p className="text-sm text-gray-500 animate-pulse">جاري البحث...</p></div>}
 
-        {/* Results Area */}
         {(response || results.length > 0) && !isSearching && (
             <div className="w-full max-w-md animate-in slide-in-from-bottom-2 space-y-6">
-                
-                {/* 1. AI Answer Section */}
                 {response && (
                     <div className="space-y-2">
-                        <div className="flex items-center gap-2 px-2 text-primary text-xs font-bold uppercase tracking-wider">
-                             <AlignRight size={14} />
-                             <span>الإجابة المقترحة</span>
-                        </div>
-                        <div className="flex gap-3 items-start">
-                            <div className="bg-gradient-to-br from-primary to-secondary p-2 rounded-full mt-1 shrink-0 shadow-lg">
-                                <Bot size={20} className="text-white" />
-                            </div>
-                            <div className="flex-1 bg-card border border-primary/20 p-5 rounded-2xl rounded-tr-none text-gray-200 leading-relaxed shadow-lg text-sm relative ring-1 ring-primary/10">
-                                {response}
-                                <div className="absolute -bottom-2 -left-2 bg-dark rounded-full p-1 border border-white/5">
-                                    <Sparkles size={12} className="text-secondary" />
-                                </div>
-                            </div>
+                        <div className="flex items-center gap-2 px-2 text-primary text-xs font-bold uppercase tracking-wider"><AlignRight size={14} /><span>الإجابة</span></div>
+                        <div className="bg-white dark:bg-card border border-primary/20 p-5 rounded-2xl shadow-lg text-sm text-foreground leading-relaxed ring-1 ring-primary/10 relative">
+                            {response}
+                            <div className="absolute -top-3 -right-3 bg-gradient-to-br from-primary to-secondary p-1.5 rounded-full shadow-lg"><Bot size={16} className="text-white" /></div>
                         </div>
                     </div>
                 )}
-
-                {/* 2. Divider if both exist */}
-                {response && results.length > 0 && (
-                    <div className="flex items-center gap-3 px-2 py-2">
-                        <div className="h-px bg-white/10 flex-1"></div>
-                        <span className="text-[10px] text-gray-500 font-medium">المصادر</span>
-                        <div className="h-px bg-white/10 flex-1"></div>
-                    </div>
-                )}
-
-                {/* 3. Matching Results List */}
                 {results.length > 0 && (
                     <div className="space-y-3">
-                        <div className="flex items-center justify-between px-2">
-                             <h3 className="text-sm font-bold text-gray-400 flex items-center gap-2">
-                                <LayoutList size={14} />
-                                المصادر والذكريات المرتبطة ({results.length})
-                            </h3>
-                        </div>
-                       
-                        {results.map((res, idx) => {
+                        <div className="flex items-center justify-between px-2"><h3 className="text-sm font-bold text-gray-500 flex items-center gap-2"><LayoutList size={14} /> المصادر ({results.length})</h3></div>
+                        {results.map((res) => {
                             const isExpanded = expandedId === res.item.id;
+                            const st = getStyles(res.item.type);
                             return (
-                                <div 
-                                    key={res.item.id} 
-                                    onClick={() => toggleExpand(res.item.id)}
-                                    className={`bg-card/40 border border-white/5 rounded-xl overflow-hidden transition-all duration-300 cursor-pointer hover:bg-card/60 ${isExpanded ? 'bg-card/80 border-primary/30 ring-1 ring-primary/20' : ''}`}
-                                >
+                                <div key={res.item.id} onClick={() => setExpandedId(isExpanded ? null : res.item.id)} className={`bg-white dark:bg-card border border-gray-200 dark:border-white/5 rounded-2xl overflow-hidden transition-all shadow-sm ${isExpanded ? 'ring-1 ring-primary/30' : ''}`}>
                                     <div className="p-3 flex gap-3">
-                                        {/* Thumbnail / Icon */}
-                                        <div className="w-16 h-16 rounded-lg bg-black/40 overflow-hidden shrink-0 flex items-center justify-center relative self-start">
-                                            {(res.item.type === MediaType.IMAGE || res.item.type === MediaType.VIDEO) ? (
-                                                <img src={res.item.content} className="w-full h-full object-cover opacity-80" alt="thumbnail" loading="lazy"/>
-                                            ) : (
-                                                <div className={`p-2 rounded-full ${getColor(res.item.type)}`}>
-                                                    {getIcon(res.item.type)}
-                                                </div>
-                                            )}
-                                            {/* Score Badge */}
-                                            <div className="absolute top-0 right-0 bg-green-500 text-dark text-[9px] font-bold px-1.5 py-0.5 rounded-bl-lg shadow-sm">
-                                                {res.score}%
-                                            </div>
+                                        <div className="w-14 h-14 rounded-xl bg-gray-100 dark:bg-black/20 overflow-hidden shrink-0 flex items-center justify-center relative border border-gray-100 dark:border-white/5">
+                                            {(res.item.type === MediaType.IMAGE || res.item.type === MediaType.VIDEO) ? <img src={res.item.content} className="w-full h-full object-cover opacity-90" alt="" loading="lazy"/> : <div className={`${st.t}`}>{getIcon(res.item.type)}</div>}
+                                            <div className="absolute top-0 right-0 bg-green-500 text-white text-[9px] font-bold px-1.5 rounded-bl-lg">{res.score}%</div>
                                         </div>
-
-                                        {/* Details */}
                                         <div className="flex-1 min-w-0 flex flex-col justify-center">
                                             <div className="flex justify-between items-start mb-1">
                                                 <div className="flex items-center gap-2">
-                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${getColor(res.item.type)}`}>
-                                                        {res.item.type === MediaType.AUDIO ? 'صوت' : res.item.type === MediaType.VIDEO ? 'فيديو' : res.item.type === MediaType.IMAGE ? 'صورة' : 'نص'}
-                                                    </span>
-                                                    <span className="text-[10px] text-gray-500 flex items-center gap-1">
-                                                        <Calendar size={10} />
-                                                        {new Date(res.item.createdAt).toLocaleDateString('ar-SA')}
-                                                    </span>
+                                                    <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${st.b} ${st.t}`}>{res.item.type}</span>
+                                                    <span className="text-[10px] text-gray-500 flex items-center gap-1"><Calendar size={10} />{new Date(res.item.createdAt).toLocaleDateString('ar-SA')}</span>
                                                 </div>
-                                                {isExpanded ? <ChevronUp size={14} className="text-gray-500"/> : <ChevronDown size={14} className="text-gray-500"/>}
+                                                {isExpanded ? <ChevronUp size={14} className="text-gray-400"/> : <ChevronDown size={14} className="text-gray-400"/>}
                                             </div>
-                                            
-                                            <p className="text-xs text-white/90 font-medium line-clamp-1 mb-0.5">
-                                                {res.item.summary || "بدون عنوان"}
-                                            </p>
-                                            
-                                            {/* Relevance Reason */}
-                                            <p className="text-[10px] text-gray-400 flex items-center gap-1">
-                                                <ArrowUpRight size={10} className="text-primary" />
-                                                {res.relevanceReason}
-                                            </p>
+                                            <p className="text-xs font-bold text-foreground line-clamp-1 mb-0.5">{res.item.summary || "بدون عنوان"}</p>
+                                            <p className="text-[10px] text-gray-500 flex items-center gap-1"><ArrowUpRight size={10} className="text-primary" />{res.relevanceReason}</p>
                                         </div>
                                     </div>
-
-                                    {/* Expanded Content */}
                                     {isExpanded && (
                                         <div className="px-3 pb-3 pt-0 animate-in fade-in slide-in-from-top-1 duration-200">
-                                            <div className="h-px bg-white/5 w-full mb-3" />
-                                            
-                                            {/* Media Viewer in Search */}
-                                            {(res.item.type === MediaType.IMAGE || res.item.type === MediaType.VIDEO || res.item.type === MediaType.AUDIO) && (
-                                                <div className="mb-3 rounded-lg overflow-hidden bg-black/30 border border-white/5">
-                                                    {res.item.type === MediaType.IMAGE && (
-                                                        <img src={res.item.content} className="w-full h-auto max-h-60 object-contain" alt="result" />
-                                                    )}
-                                                    {res.item.type === MediaType.VIDEO && (
-                                                        <video src={res.item.content} controls className="w-full max-h-60" />
-                                                    )}
-                                                    {res.item.type === MediaType.AUDIO && (
-                                                        <div className="p-3">
-                                                             <audio src={res.item.content} controls className="w-full h-8" />
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-
-                                            <div className="bg-black/20 rounded-lg p-3 text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">
-                                                {res.item.transcription || res.item.content}
-                                            </div>
-                                            
-                                            <div className="flex justify-between items-center mt-3">
-                                                {res.item.tags.length > 0 ? (
-                                                    <div className="flex gap-2 flex-wrap">
-                                                        {res.item.tags.map(t => (
-                                                            <span key={t} className="text-[10px] text-secondary bg-secondary/10 px-2 py-1 rounded">#{t}</span>
-                                                        ))}
-                                                    </div>
-                                                ) : <div></div>}
-
-                                                {/* Go to Context Button */}
-                                                <button 
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        onJumpToMemory(res.item.id);
-                                                    }}
-                                                    className="flex items-center gap-2 px-3 py-1.5 bg-primary/20 hover:bg-primary/30 text-primary rounded-lg text-xs font-bold transition-colors"
-                                                >
-                                                    <span>عرض في الجدول الزمني</span>
-                                                    <ExternalLink size={12} />
-                                                </button>
-                                            </div>
+                                            <div className="h-px bg-gray-100 dark:bg-white/5 w-full mb-3" />
+                                            <div className="bg-gray-50 dark:bg-white/5 rounded-xl p-3 text-xs text-foreground leading-relaxed whitespace-pre-wrap border border-gray-100 dark:border-white/5">{res.item.transcription || res.item.content}</div>
+                                            <button onClick={(e) => { e.stopPropagation(); onJumpToMemory(res.item.id); }} className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 bg-primary/10 text-primary rounded-xl text-xs font-bold hover:bg-primary/20 transition-colors"><span>عرض في الجدول الزمني</span><ExternalLink size={12} /></button>
                                         </div>
                                     )}
                                 </div>
@@ -386,49 +130,13 @@ export const SearchView: React.FC<SearchViewProps> = ({ onJumpToMemory }) => {
         )}
       </div>
 
-      {/* Input Area */}
-      <div className="fixed bottom-20 left-0 right-0 p-4 bg-gradient-to-t from-dark via-dark/95 to-transparent z-20">
-          <form onSubmit={(e) => handleSearch(e)} className="relative max-w-md mx-auto shadow-2xl">
-            {/* Voice Input Button */}
-            <button
-                type="button"
-                onClick={handleVoiceSearch}
-                className={`absolute right-2 top-2 bottom-2 p-2 rounded-xl transition-all z-10 ${
-                    isListening 
-                    ? 'bg-red-500/20 text-red-400 animate-pulse ring-1 ring-red-500/50' 
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-                title="بحث صوتي"
-            >
-                {isListening ? <MicOff size={20} /> : <Mic size={20} />}
-            </button>
-
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={isListening ? "جاري الاستماع..." : "اكتب سؤالك هنا..."}
-              className={`w-full bg-card border border-white/10 rounded-2xl py-4 px-6 pr-12 pl-20 text-right text-white focus:outline-none focus:bg-card/80 focus:border-primary/50 transition-all shadow-black/50 shadow-xl ${isListening ? 'ring-2 ring-red-500/20 border-red-500/30' : ''}`}
-              disabled={isSearching}
-            />
-            
+      <div className="fixed bottom-20 left-0 right-0 p-4 bg-gradient-to-t from-white via-white/95 dark:from-dark dark:via-dark/95 to-transparent z-20">
+          <form onSubmit={(e) => handleSearch(e)} className="relative max-w-md mx-auto shadow-2xl rounded-2xl">
+            <button type="button" onClick={handleVoiceSearch} className={`absolute right-2 top-2 bottom-2 p-2 rounded-xl transition-all z-10 ${isListening ? 'bg-red-500/20 text-red-500 animate-pulse' : 'text-gray-400 hover:text-foreground'}`}>{isListening ? <MicOff size={20} /> : <Mic size={20} />}</button>
+            <input type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={isListening ? "جاري الاستماع..." : "اكتب سؤالك هنا..."} className={`w-full bg-white dark:bg-card border border-gray-200 dark:border-white/10 rounded-2xl py-4 px-6 pr-12 pl-14 text-right text-foreground focus:outline-none focus:border-primary/50 shadow-xl ${isListening ? 'border-red-500/30' : ''}`} disabled={isSearching} />
             <div className="absolute left-2 top-2 bottom-2 flex items-center gap-1">
-                {query && (
-                    <button
-                        type="button"
-                        onClick={clearSearch}
-                        className="p-2 text-gray-400 hover:text-white transition-colors"
-                    >
-                        <X size={18} />
-                    </button>
-                )}
-                <button
-                type="submit"
-                disabled={isSearching || !query.trim()}
-                className="bg-gradient-to-r from-primary to-secondary text-white p-2 rounded-xl w-10 h-10 flex items-center justify-center shadow-lg shadow-primary/20 hover:scale-105 disabled:opacity-50 disabled:hover:scale-100 transition-all"
-                >
-                {isSearching ? <div className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full" /> : <Send size={18} className="mr-0.5" />}
-                </button>
+                {query && <button type="button" onClick={() => { setQuery(""); setResponse(""); setResults([]); }} className="p-2 text-gray-400 hover:text-foreground"><X size={18} /></button>}
+                <button type="submit" disabled={isSearching || !query.trim()} className="bg-gradient-to-r from-primary to-secondary text-white p-2 rounded-xl w-10 h-10 flex items-center justify-center shadow-lg hover:scale-105 disabled:opacity-50 disabled:hover:scale-100">{isSearching ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} className="mr-0.5" />}</button>
             </div>
           </form>
       </div>

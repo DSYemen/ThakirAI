@@ -13,6 +13,13 @@ export interface Reminder {
   frequency: ReminderFrequency;
 }
 
+export interface TaskCategory {
+  id: string;
+  label: string;
+  colorName: 'blue' | 'red' | 'green' | 'yellow' | 'purple' | 'gray';
+  iconName: 'briefcase' | 'heart' | 'user' | 'dollar' | 'party' | 'default';
+}
+
 export interface MemoryItem {
   id: string;
   type: MediaType;
@@ -22,9 +29,12 @@ export interface MemoryItem {
   tags: string[];
   createdAt: number;
   isFavorite?: boolean;
-  isPinned?: boolean; // New property for pinning important memories
+  isPinned?: boolean;
   reminder?: Reminder;
-  analysisStatus?: 'PENDING' | 'COMPLETED' | 'FAILED'; // Status of AI analysis
+  isCompleted?: boolean;      // New: For schedule tracking
+  completionNote?: string;    // New: Note added when completing
+  category?: TaskCategory;    // New: Visual category for schedule
+  analysisStatus?: 'PENDING' | 'COMPLETED' | 'FAILED';
   metadata?: {
     duration?: number;
     mimeType?: string;
@@ -36,4 +46,12 @@ export interface SearchResult {
   item: MemoryItem;
   relevanceReason: string;
   score: number;
+}
+
+export interface AppSettings {
+  theme: 'dark' | 'light';
+  apiKey?: string;
+  aiModel: string;
+  autoSaveMedia?: boolean;
+  customMediaFolder?: string;
 }

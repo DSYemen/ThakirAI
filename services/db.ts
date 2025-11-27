@@ -3,7 +3,7 @@ import { MemoryItem, MediaType } from '../types';
 
 const DB_NAME = 'ThakiraDB';
 const STORE_NAME = 'memories';
-const VERSION = 5; // Upgraded to add compound indices for sorting
+const VERSION = 6; // Upgraded to 6 for schedule features
 
 const openDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -22,50 +22,26 @@ const openDB = (): Promise<IDBDatabase> => {
         store = transaction!.objectStore(STORE_NAME);
       }
 
-      // Add isFavorite index in version 2
       if (!store.indexNames.contains('isFavorite')) {
         store.createIndex('isFavorite', 'isFavorite', { unique: false });
       }
 
-      // Add isPinned index in version 3
       if (!store.indexNames.contains('isPinned')) {
         store.createIndex('isPinned', 'isPinned', { unique: false });
       }
 
-      // Add reminderTimestamp index in version 4
       if (!store.indexNames.contains('reminderTimestamp')) {
         store.createIndex('reminderTimestamp', 'reminder.timestamp', { unique: false });
       }
 
-      // Version 5: Add compound indices for sorting and migrate data
       if (!store.indexNames.contains('isFavorite_createdAt')) {
         store.createIndex('isFavorite_createdAt', ['isFavorite', 'createdAt'], { unique: false });
       }
       if (!store.indexNames.contains('isPinned_createdAt')) {
         store.createIndex('isPinned_createdAt', ['isPinned', 'createdAt'], { unique: false });
       }
-
-      // Migration: Backfill default values for existing items to ensure they appear in the new indices
-      const cursorRequest = store.openCursor();
-      cursorRequest.onsuccess = (e) => {
-          const cursor = (e.target as IDBRequest).result;
-          if (cursor) {
-              const item = cursor.value;
-              let changed = false;
-              if (item.isFavorite === undefined) {
-                  item.isFavorite = false;
-                  changed = true;
-              }
-              if (item.isPinned === undefined) {
-                  item.isPinned = false;
-                  changed = true;
-              }
-              if (changed) {
-                  cursor.update(item);
-              }
-              cursor.continue();
-          }
-      };
+      
+      // Migration logic is handled automatically by IndexedDB on upgrade
     };
 
     request.onsuccess = () => resolve(request.result);
@@ -79,13 +55,11 @@ export const saveMemory = async (memory: MemoryItem): Promise<void> => {
     const transaction = db.transaction([STORE_NAME], 'readwrite');
     const store = transaction.objectStore(STORE_NAME);
     const request = store.put(memory);
-
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
 };
 
-// Legacy getMemories (fetches all) - kept for backward compatibility with Search/App
 export const getMemories = async (): Promise<MemoryItem[]> => {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -119,13 +93,11 @@ export const getMemoryById = async (id: string): Promise<MemoryItem | undefined>
   });
 };
 
-// Efficiently get only reminders that are due
 export const getDueReminders = async (timestamp: number): Promise<MemoryItem[]> => {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([STORE_NAME], 'readonly');
     const store = transaction.objectStore(STORE_NAME);
-    // Ensure the index exists (safeguard)
     if (!store.indexNames.contains('reminderTimestamp')) {
         resolve([]);
         return;
@@ -139,13 +111,38 @@ export const getDueReminders = async (timestamp: number): Promise<MemoryItem[]> 
   });
 };
 
+// New function to get ALL scheduled items sorted by date
+export const getAllReminders = async (): Promise<MemoryItem[]> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    
+    if (!store.indexNames.contains('reminderTimestamp')) {
+        resolve([]);
+        return;
+    }
+
+    const index = store.index('reminderTimestamp');
+    const request = index.getAll(); // Get all
+
+    request.onsuccess = () => {
+        // We might want to sort them manually if the index order isn't sufficient or if we want to filter empty reminders
+        const results = (request.result as MemoryItem[]).filter(m => m.reminder);
+        results.sort((a, b) => (a.reminder!.timestamp - b.reminder!.timestamp));
+        resolve(results);
+    };
+    request.onerror = () => reject(request.error);
+  });
+};
+
 export interface FilterOptions {
   type: MediaType | 'ALL';
   timeFilter: 'ALL' | 'TODAY' | 'WEEK' | 'MONTH' | 'YEAR';
   showFavoritesOnly: boolean;
-  showPinnedOnly: boolean; // Added pinned filter
+  showPinnedOnly: boolean;
   searchQuery: string;
-  sortBy: 'DATE' | 'FAVORITES' | 'PINNED'; // Added sort by pinned
+  sortBy: 'DATE' | 'FAVORITES' | 'PINNED';
 }
 
 export interface PagedResult {
@@ -163,28 +160,17 @@ export const getPagedMemories = async (
     const transaction = db.transaction([STORE_NAME], 'readonly');
     const store = transaction.objectStore(STORE_NAME);
     
-    // Determine Index and Direction
-    // Use compound indices for optimized sorting
     let indexName = 'createdAt';
-    if (filters.sortBy === 'FAVORITES') {
-        indexName = 'isFavorite_createdAt';
-    } else if (filters.sortBy === 'PINNED') {
-        indexName = 'isPinned_createdAt';
-    }
+    if (filters.sortBy === 'FAVORITES') indexName = 'isFavorite_createdAt';
+    else if (filters.sortBy === 'PINNED') indexName = 'isPinned_createdAt';
     
-    // Fallback if index doesn't exist (e.g. older DB version before upgrade completes)
-    if (!store.indexNames.contains(indexName)) {
-        indexName = 'createdAt';
-    }
+    if (!store.indexNames.contains(indexName)) indexName = 'createdAt';
 
     const index = store.index(indexName);
-    const direction = 'prev'; // Newest first (or true first for booleans)
+    const direction = 'prev';
 
-    // Handle Cursor Range
     let range: IDBKeyRange | null = null;
     if (startCursor) {
-      // Use true (open interval) to skip the exact match of the last item.
-      // This works for both simple keys and array keys (compound indices).
       range = IDBKeyRange.upperBound(startCursor.value, true); 
     }
 
@@ -201,34 +187,19 @@ export const getPagedMemories = async (
         return;
       }
 
-      // Redundant safety check for ID collision if timestamp/value matches exactly
-      // (Rare with upperBound true, but possible if duplicates exist in index key)
       if (!hasSkippedToCursor && startCursor) {
           if (cursor.value.id === startCursor.id) {
               hasSkippedToCursor = true;
           }
-          // If we used upperBound(val, true), we likely don't hit this unless key collision.
-          // If we hit a collision (same key, different ID), we might need to skip.
-          // For now, assume upperBound handled it or we just process.
-          // In 'prev' direction with duplicate keys, IDs might not be sorted as expected 
-          // to simply skip by equality, so we rely on range.
       }
 
       const memory = cursor.value as MemoryItem;
       let matches = true;
 
-      // --- Apply Filters ---
-      
-      // 1. Filter Type
       if (filters.type !== 'ALL' && memory.type !== filters.type) matches = false;
-
-      // 2. Favorites Filter
       if (matches && filters.showFavoritesOnly && !memory.isFavorite) matches = false;
-
-      // 3. Pinned Filter
       if (matches && filters.showPinnedOnly && !memory.isPinned) matches = false;
 
-      // 4. Time Filter
       if (matches && filters.timeFilter !== 'ALL') {
           const date = new Date(memory.createdAt);
           const now = new Date();
@@ -242,16 +213,12 @@ export const getPagedMemories = async (
           else if (filters.timeFilter === 'YEAR' && diffDays > 365) matches = false;
       }
 
-      // 5. Search Query
       if (matches && filters.searchQuery) {
           const q = filters.searchQuery.toLowerCase();
           const text = (memory.transcription || memory.content || '').toLowerCase();
           const summary = (memory.summary || '').toLowerCase();
           const tags = (memory.tags || []).join(' ').toLowerCase();
-          
-          if (!text.includes(q) && !summary.includes(q) && !tags.includes(q)) {
-              matches = false;
-          }
+          if (!text.includes(q) && !summary.includes(q) && !tags.includes(q)) matches = false;
       }
 
       if (matches) {
@@ -261,17 +228,12 @@ export const getPagedMemories = async (
       if (items.length < limit) {
           cursor.continue();
       } else {
-          // Capture the cursor value for the next page.
-          // For compound index, this will be an array [boolean, timestamp].
-          const nextVal = cursor.key;
-          const nextId = memory.id;
           resolve({ 
               items, 
-              nextCursor: { value: nextVal, id: nextId } 
+              nextCursor: { value: cursor.key, id: memory.id } 
           });
       }
     };
-
     request.onerror = () => reject(request.error);
   });
 };
@@ -285,4 +247,62 @@ export const deleteMemory = async (id: string): Promise<void> => {
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
+};
+
+// === IMPORT / EXPORT / CLEAR ===
+
+export const exportDatabase = async (): Promise<string> => {
+    const items = await getMemories();
+    const backup = {
+        version: VERSION,
+        timestamp: Date.now(),
+        data: items
+    };
+    return JSON.stringify(backup);
+};
+
+export const importDatabase = async (jsonData: string): Promise<boolean> => {
+    try {
+        const backup = JSON.parse(jsonData);
+        if (!backup.data || !Array.isArray(backup.data)) {
+            throw new Error("Invalid backup format");
+        }
+
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            
+            // Clear existing data
+            const clearReq = store.clear();
+            
+            clearReq.onsuccess = () => {
+                let count = 0;
+                backup.data.forEach((item: MemoryItem) => {
+                    store.put(item);
+                    count++;
+                });
+                
+                // Wait for transaction complete
+                transaction.oncomplete = () => resolve(true);
+            };
+            
+            clearReq.onerror = () => reject(clearReq.error);
+            transaction.onerror = () => reject(transaction.error);
+        });
+    } catch (e) {
+        console.error("Import failed", e);
+        return false;
+    }
+};
+
+export const clearDatabase = async (): Promise<void> => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.clear();
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+    });
 };

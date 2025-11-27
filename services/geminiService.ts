@@ -1,11 +1,21 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { MemoryItem, MediaType, ReminderFrequency } from "../types";
+import { getSettings } from "./settingsService";
 
 const getAI = () => {
-    if (!process.env.API_KEY) {
-        throw new Error("API Key is missing");
+    const settings = getSettings();
+    // Prioritize User API Key, fallback to env
+    const apiKey = settings.apiKey || process.env.API_KEY;
+    
+    if (!apiKey) {
+        throw new Error("API Key is missing. Please add it in settings.");
     }
-    return new GoogleGenAI({ apiKey: process.env.API_KEY });
+    return new GoogleGenAI({ apiKey });
+};
+
+const getModelName = () => {
+    const settings = getSettings();
+    return settings.aiModel || "gemini-2.5-flash";
 };
 
 // Helper to clean base64 string
@@ -29,53 +39,53 @@ export const analyzeMedia = async (
   textContext: string = ""
 ): Promise<AnalysisResult> => {
   
-  const ai = getAI();
-  const model = "gemini-2.5-flash"; 
-
-  const now = new Date();
-  const currentContext = `
-  التوقيت الحالي للمستخدم هو: ${now.toISOString()} (${now.toLocaleDateString('en-US', { weekday: 'long' })}).
-  استخدم هذا التوقيت لحساب أي تواريخ نسبية بدقة (مثال: "غداً"، "الجمعة القادم"، "بعد ساعة").
-  `;
-
-  let prompt = "قم بتحليل هذا المحتوى بدقة عالية. " + currentContext;
-  const parts: any[] = [];
-
-  if (type === MediaType.AUDIO) {
-    prompt += "قم بنسخ (Transcribe) الكلام بدقة، لخص الموضوع، استخرج الوسوم. إذا ذكر المستخدم موعداً للتذكير أو تكراراً (مثال: ذكرني كل يوم، موعد الطبيب غداً)، استخرج بيانات التذكير.";
-    parts.push({
-      inlineData: {
-        mimeType: "audio/mp3", 
-        data: cleanBase64(base64Data)
-      }
-    });
-  } else if (type === MediaType.IMAGE) {
-    prompt += "صف الصورة، حدد العناصر، استخرج وسوم. إذا كانت الصورة تحتوي على نص لموعد (مثال: دعوة، تذكرة، ورقة ملاحظات)، استخرج بيانات التذكير.";
-    parts.push({
-      inlineData: {
-        mimeType: "image/jpeg",
-        data: cleanBase64(base64Data)
-      }
-    });
-  } else if (type === MediaType.VIDEO) {
-    prompt += "حلل الفيديو بصرياً وصوتياً. استخرج وسوم. إذا تم ذكر موعد أو ظهر تاريخ مهم، استخرج بيانات التذكير.";
-    parts.push({
-      inlineData: {
-        mimeType: "video/mp4", 
-        data: cleanBase64(base64Data)
-      }
-    });
-  } else {
-     prompt += "لخص النص، استخرج الوسوم. إذا طلب المستخدم تذكيراً (مثال: 'ذكرني شراء الحليب مساءً')، استخرج بيانات التذكير.";
-  }
-
-  if (textContext) {
-    prompt += `\n سياق إضافي من المستخدم: ${textContext}`;
-  }
-
-  parts.push({ text: prompt });
-
   try {
+    const ai = getAI();
+    const model = getModelName();
+
+    const now = new Date();
+    const currentContext = `
+    التوقيت الحالي للمستخدم هو: ${now.toISOString()} (${now.toLocaleDateString('en-US', { weekday: 'long' })}).
+    استخدم هذا التوقيت لحساب أي تواريخ نسبية بدقة (مثال: "غداً"، "الجمعة القادم"، "بعد ساعة").
+    `;
+
+    let prompt = "قم بتحليل هذا المحتوى بدقة عالية. " + currentContext;
+    const parts: any[] = [];
+
+    if (type === MediaType.AUDIO) {
+        prompt += "قم بنسخ (Transcribe) الكلام بدقة، لخص الموضوع، استخرج الوسوم. إذا ذكر المستخدم موعداً للتذكير أو تكراراً (مثال: ذكرني كل يوم، موعد الطبيب غداً)، استخرج بيانات التذكير.";
+        parts.push({
+        inlineData: {
+            mimeType: "audio/mp3", 
+            data: cleanBase64(base64Data)
+        }
+        });
+    } else if (type === MediaType.IMAGE) {
+        prompt += "صف الصورة، حدد العناصر، استخرج وسوم. إذا كانت الصورة تحتوي على نص لموعد (مثال: دعوة، تذكرة، ورقة ملاحظات)، استخرج بيانات التذكير.";
+        parts.push({
+        inlineData: {
+            mimeType: "image/jpeg",
+            data: cleanBase64(base64Data)
+        }
+        });
+    } else if (type === MediaType.VIDEO) {
+        prompt += "حلل الفيديو بصرياً وصوتياً. استخرج وسوم. إذا تم ذكر موعد أو ظهر تاريخ مهم، استخرج بيانات التذكير.";
+        parts.push({
+        inlineData: {
+            mimeType: "video/mp4", 
+            data: cleanBase64(base64Data)
+        }
+        });
+    } else {
+        prompt += "لخص النص، استخرج الوسوم. إذا طلب المستخدم تذكيراً (مثال: 'ذكرني شراء الحليب مساءً')، استخرج بيانات التذكير.";
+    }
+
+    if (textContext) {
+        prompt += `\n سياق إضافي من المستخدم: ${textContext}`;
+    }
+
+    parts.push({ text: prompt });
+
     const response = await ai.models.generateContent({
       model,
       contents: { parts },
@@ -120,51 +130,52 @@ export const analyzeMedia = async (
     console.error("Gemini Analysis Error:", error);
     return { 
         transcription: "", 
-        summary: "لم نتمكن من تحليل المحتوى تلقائياً.", 
-        tags: ["مراجعة_يدوية"],
+        summary: "لم نتمكن من تحليل المحتوى تلقائياً (تأكد من إعدادات API Key).", 
+        tags: ["خطأ_تحليل"],
         detectedReminder: null
     };
   }
 };
 
 export const smartSearch = async (query: string, memories: MemoryItem[]): Promise<{ answer: string; results: { id: string; score: number; reason: string }[] }> => {
-    const ai = getAI();
-    
-    // Optimized context to save tokens
-    const context = memories.map(m => ({
-        id: m.id,
-        date: new Date(m.createdAt).toLocaleDateString('ar-SA'),
-        type: m.type,
-        summary: m.summary || "لا يوجد وصف",
-        text: m.type === MediaType.TEXT ? m.content.substring(0, 300) : m.transcription?.substring(0, 300) || "",
-        tags: m.tags.join(", ")
-    }));
-
-    const prompt = `
-    أنت مساعد ذكي للذكريات الشخصية. هدفك هو مساعدة المستخدم في استرجاع المعلومات من ذكرياته المسجلة.
-    
-    سؤال المستخدم: "${query}"
-
-    قائمة الذكريات المتاحة (Context):
-    ${JSON.stringify(context)}
-
-    المطلوب:
-    1. "answer": قم بصياغة إجابة طبيعية، شاملة، ومفيدة باللغة العربية. 
-       - استخدم المعلومات الموجودة في الذكريات للإجابة على السؤال.
-       - إذا وجدت الإجابة في عدة ذكريات، قم بتجميعها في فقرة متماسكة.
-       - إذا لم تجد إجابة دقيقة، اعتذر بلطف واذكر أقرب معلومة إن وجدت.
-    
-    2. "results": اختر الذكريات التي استندت إليها في إجابتك أو التي لها صلة قوية بالسؤال.
-       - "id": معرف الذكرى.
-       - "score": نسبة المطابقة (0-100).
-       - "reason": لماذا اخترت هذه الذكرى (شرح قصير).
-    
-    رتب النتائج (results) تنازلياً حسب الأهمية.
-    `;
-
     try {
+        const ai = getAI();
+        const model = getModelName();
+        
+        // Optimized context to save tokens
+        const context = memories.map(m => ({
+            id: m.id,
+            date: new Date(m.createdAt).toLocaleDateString('ar-SA'),
+            type: m.type,
+            summary: m.summary || "لا يوجد وصف",
+            text: m.type === MediaType.TEXT ? m.content.substring(0, 300) : m.transcription?.substring(0, 300) || "",
+            tags: m.tags.join(", ")
+        }));
+
+        const prompt = `
+        أنت مساعد ذكي للذكريات الشخصية. هدفك هو مساعدة المستخدم في استرجاع المعلومات من ذكرياته المسجلة.
+        
+        سؤال المستخدم: "${query}"
+
+        قائمة الذكريات المتاحة (Context):
+        ${JSON.stringify(context)}
+
+        المطلوب:
+        1. "answer": قم بصياغة إجابة طبيعية، شاملة، ومفيدة باللغة العربية. 
+        - استخدم المعلومات الموجودة في الذكريات للإجابة على السؤال.
+        - إذا وجدت الإجابة في عدة ذكريات، قم بتجميعها في فقرة متماسكة.
+        - إذا لم تجد إجابة دقيقة، اعتذر بلطف واذكر أقرب معلومة إن وجدت.
+        
+        2. "results": اختر الذكريات التي استندت إليها في إجابتك أو التي لها صلة قوية بالسؤال.
+        - "id": معرف الذكرى.
+        - "score": نسبة المطابقة (0-100).
+        - "reason": لماذا اخترت هذه الذكرى (شرح قصير).
+        
+        رتب النتائج (results) تنازلياً حسب الأهمية.
+        `;
+
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: model, // Use dynamic model
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
@@ -195,7 +206,7 @@ export const smartSearch = async (query: string, memories: MemoryItem[]): Promis
     } catch (e) {
         console.error(e);
         return { 
-            answer: "حدث خطأ في الاتصال بالمساعد الذكي.", 
+            answer: "حدث خطأ في الاتصال بالمساعد الذكي (تأكد من إعدادات API Key والإنترنت).", 
             results: [] 
         };
     }

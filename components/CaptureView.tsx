@@ -1,9 +1,10 @@
-
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, Video, Mic, Type, Check, Loader2, Bell, X, Calendar, Sparkles, CalendarDays, AlertCircle, CameraOff, MicOff, RefreshCw, Settings } from 'lucide-react';
+import { Camera, Video, Mic, Type, Check, Loader2, Bell, X, Calendar, Sparkles, CalendarDays, AlertCircle, CameraOff, MicOff, RefreshCw, Settings, Maximize2 } from 'lucide-react';
 import { Camera as CapacitorCamera } from '@capacitor/camera';
 import { analyzeMedia } from '../services/geminiService';
 import { saveMemory } from '../services/db';
+import { getSettings } from '../services/settingsService';
+import { saveSingleMediaToPublic } from '../services/storageService';
 import { generateGoogleCalendarLink } from '../services/calendarService';
 import { MediaType, MemoryItem, Reminder, ReminderFrequency } from '../types';
 
@@ -52,7 +53,6 @@ export const CaptureView: React.FC = () => {
 
   const requestNativePermissions = async () => {
     try {
-        // Request Camera Permission explicitly for Android
         const camStatus = await CapacitorCamera.checkPermissions();
         if (camStatus.camera !== 'granted') {
             await CapacitorCamera.requestPermissions({ permissions: ['camera', 'photos'] });
@@ -64,21 +64,18 @@ export const CaptureView: React.FC = () => {
 
   const startCamera = async () => {
     setDeviceError(null);
-    
     await requestNativePermissions();
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setDeviceError({ type: 'CAMERA', message: "عذراً، متصفحك لا يدعم الوصول للكاميرا أو أن الاتصال غير آمن (HTTPS مطلوب)." });
+        setDeviceError({ type: 'CAMERA', message: "عذراً، متصفحك لا يدعم الوصول للكاميرا." });
         return;
     }
 
     try {
-      // For video mode, we try to get audio permission as well initially
       const constraints = {
           video: { facingMode: 'environment' },
           audio: mode === 'VIDEO'
       };
-
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       setPreviewStream(stream);
       if (videoRef.current) {
@@ -88,11 +85,7 @@ export const CaptureView: React.FC = () => {
       console.error("Camera Access Error", e);
       let msg = "حدث خطأ غير متوقع أثناء تشغيل الكاميرا.";
       if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
-          msg = "تم رفض إذن الوصول للكاميرا. يرجى السماح بذلك من إعدادات التطبيق أو المتصفح.";
-      } else if (e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError') {
-          msg = "لم يتم العثور على كاميرا في هذا الجهاز.";
-      } else if (e.name === 'NotReadableError' || e.name === 'TrackStartError') {
-          msg = "الكاميرا مستخدمة بالفعل من قبل تطبيق آخر. أغلق التطبيقات الأخرى وحاول مرة أخرى.";
+          msg = "تم رفض إذن الوصول للكاميرا.";
       }
       setDeviceError({ type: 'CAMERA', message: msg });
     }
@@ -109,7 +102,6 @@ export const CaptureView: React.FC = () => {
     setDeviceError(null);
     chunksRef.current = [];
     
-    // Check API support first
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         setDeviceError({ type: mode === 'AUDIO' ? 'MIC' : 'CAMERA', message: "عذراً، جهازك لا يدعم التسجيل." });
         return;
@@ -122,41 +114,30 @@ export const CaptureView: React.FC = () => {
         } catch(e: any) {
             console.error("Mic Access Error", e);
             let msg = "حدث خطأ أثناء تشغيل الميكروفون.";
-            if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
-                msg = "تم رفض إذن الميكروفون. يرجى الذهاب إلى إعدادات الهاتف -> التطبيقات -> الذاكرة الذكية -> ومنح إذن الميكروفون.";
-            } else if (e.name === 'NotFoundError') {
-                msg = "لم يتم العثور على ميكروفون.";
-            }
+            if (e.name === 'NotAllowedError') msg = "تم رفض إذن الميكروفون.";
             setDeviceError({ type: 'MIC', message: msg });
             return;
         }
     }
 
-    if (!stream) {
-        if (mode !== 'AUDIO' && !deviceError) {
-             // Retry starting camera if stream is missing in video mode (and no error yet)
-             startCamera();
-        }
-        return;
+    if (!stream && mode !== 'AUDIO' && !deviceError) {
+         startCamera();
+         return;
     }
 
+    if (!stream) return;
+
     const mimeType = mode === 'VIDEO' ? 'video/webm;codecs=vp8,opus' : 'audio/webm';
-    // Fallback for Safari/iOS which prefers mp4/aac or standard webm without codec specs
     const options = MediaRecorder.isTypeSupported(mimeType) ? { mimeType } : undefined;
 
     try {
         const recorder = new MediaRecorder(stream, options);
         mediaRecorderRef.current = recorder;
-
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) chunksRef.current.push(e.data);
-        };
-
+        recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
         recorder.onstop = handleRecordingStop;
         recorder.start();
         setIsRecording(true);
     } catch (err) {
-        console.error("MediaRecorder Error", err);
         setDeviceError({ type: mode === 'AUDIO' ? 'MIC' : 'CAMERA', message: "المتصفح لا يدعم التسجيل بهذه الصيغة." });
     }
   };
@@ -173,14 +154,11 @@ export const CaptureView: React.FC = () => {
 
   const captureImage = () => {
     if (!videoRef.current || !canvasRef.current) return;
-    
     const context = canvasRef.current.getContext('2d');
     const video = videoRef.current;
-    
     canvasRef.current.width = video.videoWidth;
     canvasRef.current.height = video.videoHeight;
     context?.drawImage(video, 0, 0);
-    
     canvasRef.current.toBlob(async (blob) => {
         if (blob) {
              setPendingCapture({ blob, type: MediaType.IMAGE, mimeType: 'image/jpeg' });
@@ -211,29 +189,22 @@ export const CaptureView: React.FC = () => {
         const base64 = await blobToBase64(blob);
         const id = crypto.randomUUID();
 
-        // 1. Optimistic Save: Save immediately with pending status
         const memory: MemoryItem = {
-            id,
-            type,
-            content: base64,
-            createdAt: Date.now(),
-            transcription: "", // Empty initially
-            summary: "جاري المعالجة والتحليل...",
-            tags: [],
-            metadata: { mimeType },
-            reminder: activeReminder, // If user manually set a reminder, use it
-            analysisStatus: 'PENDING',
-            isFavorite: false,
-            isPinned: false
+            id, type, content: base64, createdAt: Date.now(), transcription: "", 
+            summary: "جاري المعالجة والتحليل...", tags: [], metadata: { mimeType },
+            reminder: activeReminder, analysisStatus: 'PENDING', isFavorite: false, isPinned: false
         };
 
         await saveMemory(memory);
-        resetForm(); // Clear UI immediately for user
+        resetForm(); 
 
-        // 2. Background Analysis
+        const settings = getSettings();
+        if (settings.autoSaveMedia) {
+             saveSingleMediaToPublic(base64, type, settings.customMediaFolder).then(s => { if(s) console.log("Auto-saved"); });
+        }
+
         analyzeMedia(type, base64, inputText).then(async (analysis) => {
             let finalReminder = activeReminder;
-            // Only auto-detect if no manual reminder was set
             if (!finalReminder && analysis.detectedReminder) {
                 finalReminder = {
                     timestamp: new Date(analysis.detectedReminder.isoTimestamp).getTime(),
@@ -241,34 +212,17 @@ export const CaptureView: React.FC = () => {
                 };
                 setAutoReminderDetected(true);
             }
-
-            const updatedMemory: MemoryItem = {
-                ...memory,
-                transcription: analysis.transcription,
-                summary: analysis.summary,
-                tags: analysis.tags,
-                reminder: finalReminder,
-                analysisStatus: 'COMPLETED'
+            const updatedMemory = {
+                ...memory, transcription: analysis.transcription, summary: analysis.summary,
+                tags: analysis.tags, reminder: finalReminder, analysisStatus: 'COMPLETED'
             };
-
-            await saveMemory(updatedMemory);
-            
-            // If the user is still on this screen and we detected a reminder, show the notification
-            if (finalReminder && !activeReminder) {
-                setTimeout(() => setAutoReminderDetected(false), 5000);
-            }
-        }).catch(async (err) => {
-            console.error("Background analysis failed", err);
-            const failedMemory: MemoryItem = {
-                ...memory,
-                summary: "فشل التحليل الذكي",
-                analysisStatus: 'FAILED'
-            };
-            await saveMemory(failedMemory);
+            await saveMemory(updatedMemory as MemoryItem); // Cast to avoid TS issues
+            if (finalReminder && !activeReminder) setTimeout(() => setAutoReminderDetected(false), 5000);
+        }).catch(async () => {
+            await saveMemory({ ...memory, summary: "فشل التحليل الذكي", analysisStatus: 'FAILED' } as MemoryItem);
         });
 
       } catch (error) {
-          console.error(error);
           setStatus("error");
       }
   };
@@ -282,65 +236,30 @@ export const CaptureView: React.FC = () => {
   const executeTextSave = async () => {
     if (!inputText.trim()) return;
     setStatus("processing");
-    
     const id = crypto.randomUUID();
-    
-    // 1. Optimistic Save
     const memory: MemoryItem = {
-        id,
-        type: MediaType.TEXT,
-        content: inputText,
-        createdAt: Date.now(),
-        transcription: inputText,
-        summary: "جاري المعالجة...",
-        tags: [],
-        reminder: activeReminder,
-        analysisStatus: 'PENDING',
-        isFavorite: false,
-        isPinned: false
+        id, type: MediaType.TEXT, content: inputText, createdAt: Date.now(), transcription: inputText,
+        summary: "جاري المعالجة...", tags: [], reminder: activeReminder, analysisStatus: 'PENDING', isFavorite: false, isPinned: false
     };
-
     await saveMemory(memory);
     resetForm();
 
-    // 2. Background Analysis
     analyzeMedia(MediaType.TEXT, "", inputText).then(async (analysis) => {
         let finalReminder = activeReminder;
         if (!finalReminder && analysis.detectedReminder) {
-            finalReminder = {
-                timestamp: new Date(analysis.detectedReminder.isoTimestamp).getTime(),
-                frequency: analysis.detectedReminder.frequency
-            };
+            finalReminder = { timestamp: new Date(analysis.detectedReminder.isoTimestamp).getTime(), frequency: analysis.detectedReminder.frequency };
             setAutoReminderDetected(true);
         }
-
-        const updatedMemory: MemoryItem = {
-            ...memory,
-            summary: analysis.summary,
-            tags: analysis.tags,
-            reminder: finalReminder,
-            analysisStatus: 'COMPLETED'
-        };
-
-        await saveMemory(updatedMemory);
-    }).catch(async (err) => {
-         const failedMemory: MemoryItem = {
-                ...memory,
-                summary: "فشل التحليل الذكي",
-                analysisStatus: 'FAILED'
-            };
-        await saveMemory(failedMemory);
+        await saveMemory({ ...memory, summary: analysis.summary, tags: analysis.tags, reminder: finalReminder, analysisStatus: 'COMPLETED' } as MemoryItem);
+    }).catch(async () => {
+        await saveMemory({ ...memory, summary: "فشل التحليل الذكي", analysisStatus: 'FAILED' } as MemoryItem);
     });
   };
 
   const confirmSave = async () => {
       setShowConfirmModal(false);
-      
-      if (pendingCapture?.type === MediaType.TEXT) {
-          await executeTextSave();
-      } else if (pendingCapture?.blob && pendingCapture?.mimeType) {
-          await executeProcessAndSave(pendingCapture.blob, pendingCapture.type, pendingCapture.mimeType);
-      }
+      if (pendingCapture?.type === MediaType.TEXT) await executeTextSave();
+      else if (pendingCapture?.blob && pendingCapture?.mimeType) await executeProcessAndSave(pendingCapture.blob, pendingCapture.type, pendingCapture.mimeType);
       setPendingCapture(null);
   };
 
@@ -353,28 +272,47 @@ export const CaptureView: React.FC = () => {
       setStatus("saved");
       setInputText("");
       setActiveReminder(undefined);
-      setTimeout(() => {
-          setStatus("");
-          setAutoReminderDetected(false);
-      }, 3000);
+      setTimeout(() => { setStatus(""); setAutoReminderDetected(false); }, 3000);
   };
 
   const saveReminder = () => {
-      if (reminderDate) {
-          setActiveReminder({
-              timestamp: new Date(reminderDate).getTime(),
-              frequency: reminderFreq
-          });
-      } else {
-          setActiveReminder(undefined);
-      }
+      if (reminderDate) setActiveReminder({ timestamp: new Date(reminderDate).getTime(), frequency: reminderFreq });
+      else setActiveReminder(undefined);
       setShowReminderModal(false);
   };
 
+  // Helper to determine text color based on background logic
+  const isCameraMode = mode === 'VIDEO' || mode === 'IMAGE';
+  
   return (
     <div className="flex flex-col h-full bg-dark relative overflow-hidden">
-        {/* Camera Preview Layer (OR Error Layer) */}
-        {(mode === 'VIDEO' || mode === 'IMAGE') && (
+        
+        {/* Unified Header */}
+        <div className={`sticky top-0 z-30 px-4 py-3 flex justify-between items-center border-b transition-colors duration-300 ${isCameraMode ? 'bg-black/20 border-white/10 backdrop-blur-sm text-white' : 'bg-white/80 dark:bg-slate-900/80 border-gray-200 dark:border-white/5 backdrop-blur-md text-foreground'}`}>
+             <h2 className="text-xl font-bold">
+                 {mode === 'AUDIO' && 'تسجيل صوتي'}
+                 {mode === 'VIDEO' && 'تسجيل فيديو'}
+                 {mode === 'IMAGE' && 'التقاط صورة'}
+                 {mode === 'TEXT' && 'تدوين ملاحظة'}
+             </h2>
+             <div className="flex items-center gap-2">
+                {status === 'processing' && (
+                    <div className="bg-primary/10 px-3 py-1 rounded-full flex items-center gap-2 text-xs text-primary font-bold">
+                        <Loader2 size={12} className="animate-spin" />
+                        <span>جاري الحفظ...</span>
+                    </div>
+                )}
+                {status === 'saved' && (
+                     <div className="bg-green-500/10 px-3 py-1 rounded-full flex items-center gap-2 text-xs text-green-500 font-bold border border-green-500/20">
+                         <Check size={12} />
+                         <span>تم الحفظ</span>
+                     </div>
+                )}
+             </div>
+        </div>
+
+        {/* Camera Preview Layer */}
+        {isCameraMode && (
              <div className="absolute inset-0 z-0 bg-black">
                  {deviceError?.type === 'CAMERA' ? (
                      <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10">
@@ -383,59 +321,19 @@ export const CaptureView: React.FC = () => {
                          </div>
                          <h3 className="text-lg font-bold text-white mb-2">تعذر الوصول للكاميرا</h3>
                          <p className="text-gray-400 text-sm mb-6 leading-relaxed max-w-xs">{deviceError.message}</p>
-                         <button 
-                            onClick={startCamera}
-                            className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg text-sm transition-colors"
-                         >
-                             <RefreshCw size={14} />
-                             إعادة المحاولة
+                         <button onClick={startCamera} className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg text-sm transition-colors">
+                             <RefreshCw size={14} /> إعادة المحاولة
                          </button>
                      </div>
                  ) : (
                     <>
-                        <video 
-                            ref={videoRef} 
-                            autoPlay 
-                            playsInline 
-                            muted 
-                            className="w-full h-full object-cover opacity-90"
-                        />
+                        <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover opacity-90" />
                         <canvas ref={canvasRef} className="hidden" />
-                        <div className="absolute inset-0 bg-gradient-to-b from-dark/60 via-transparent to-dark/90 pointer-events-none" />
+                        <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/80 pointer-events-none" />
                     </>
                  )}
              </div>
         )}
-
-        {/* Top Header */}
-        <div className="relative z-10 p-4 flex justify-between items-center">
-             <h2 className="text-lg font-bold text-white drop-shadow-md">
-                 {mode === 'AUDIO' && 'تسجيل صوتي'}
-                 {mode === 'VIDEO' && 'تسجيل فيديو'}
-                 {mode === 'IMAGE' && 'التقاط صورة'}
-                 {mode === 'TEXT' && 'تدوين ملاحظة'}
-             </h2>
-             {status === 'processing' && (
-                 <div className="bg-black/50 backdrop-blur px-3 py-1 rounded-full flex items-center gap-2 text-xs text-secondary">
-                     <Loader2 size={12} className="animate-spin" />
-                     <span>جاري الحفظ...</span>
-                 </div>
-             )}
-             {status === 'saved' && (
-                 <div className="flex flex-col items-end gap-1">
-                     <div className="bg-green-500/20 backdrop-blur px-3 py-1 rounded-full flex items-center gap-2 text-xs text-green-400 border border-green-500/30">
-                         <Check size={12} />
-                         <span>تم الحفظ</span>
-                     </div>
-                     {autoReminderDetected && (
-                         <div className="bg-secondary/20 backdrop-blur px-3 py-1 rounded-full flex items-center gap-2 text-xs text-secondary border border-secondary/30 animate-in slide-in-from-top-2 shadow-[0_0_10px_rgba(168,85,247,0.3)]">
-                             <Bell size={12} className="animate-pulse" fill="currentColor" />
-                             <span>تم ضبط التذكير</span>
-                         </div>
-                     )}
-                 </div>
-             )}
-        </div>
         
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col justify-center items-center relative z-10 px-6">
@@ -447,28 +345,23 @@ export const CaptureView: React.FC = () => {
                             <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-4 border border-red-500/20">
                                 <MicOff size={32} className="text-red-400" />
                             </div>
-                            <h3 className="text-lg font-bold text-white mb-2">تعذر الوصول للميكروفون</h3>
-                            <p className="text-gray-400 text-sm mb-6 leading-relaxed max-w-xs">{deviceError.message}</p>
+                            <h3 className="text-lg font-bold text-foreground mb-2">تعذر الوصول للميكروفون</h3>
                             <div className="flex gap-3">
-                                <button 
-                                    onClick={startRecording}
-                                    className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg text-sm transition-colors"
-                                >
-                                    <RefreshCw size={14} />
-                                    إعادة المحاولة
+                                <button onClick={startRecording} className="flex items-center gap-2 bg-gray-200 dark:bg-white/10 text-foreground px-4 py-2 rounded-lg text-sm transition-colors">
+                                    <RefreshCw size={14} /> إعادة المحاولة
                                 </button>
                             </div>
                         </div>
                     ) : (
                         <>
-                            <div className="w-48 h-48 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border-4 border-white/5 relative">
+                            <div className="w-48 h-48 rounded-full bg-gradient-to-br from-primary/10 to-secondary/10 flex items-center justify-center border-4 border-white/50 dark:border-white/5 relative shadow-[0_0_30px_rgba(99,102,241,0.1)]">
                                 {isRecording && <div className="absolute inset-0 rounded-full animate-ping bg-primary/20"></div>}
-                                <Mic size={64} className="text-white/80" />
+                                <Mic size={64} className="text-primary dark:text-primary/80" />
                             </div>
                             {isRecording ? (
-                                <p className="text-center mt-8 text-primary font-mono animate-pulse">جاري التسجيل...</p>
+                                <p className="text-center mt-8 text-primary font-mono animate-pulse font-bold">جاري التسجيل...</p>
                             ) : (
-                                <p className="text-center mt-8 text-gray-500 text-sm">اضغط على الزر أدناه لبدء التسجيل</p>
+                                <p className="text-center mt-8 text-gray-400 text-sm">اضغط على الزر أدناه لبدء التسجيل</p>
                             )}
                         </>
                     )}
@@ -476,76 +369,67 @@ export const CaptureView: React.FC = () => {
             )}
 
             {mode === 'TEXT' && (
-                <textarea
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    placeholder="بماذا تفكر الآن؟ (مثال: ذكرني بموعد الطبيب غداً)"
-                    className="w-full h-64 bg-card/60 backdrop-blur-md border border-white/10 rounded-2xl p-6 text-xl leading-relaxed text-right focus:outline-none focus:border-primary/50 resize-none shadow-xl placeholder:text-gray-500"
-                />
+                <div className="w-full h-full max-h-[400px] flex flex-col">
+                    <textarea
+                        value={inputText}
+                        onChange={(e) => setInputText(e.target.value)}
+                        placeholder="بماذا تفكر الآن؟ (مثال: ذكرني بموعد الطبيب غداً)"
+                        className="w-full flex-1 bg-white dark:bg-card border border-gray-200 dark:border-white/5 rounded-2xl p-6 text-lg leading-relaxed text-right focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 resize-none shadow-sm placeholder:text-gray-400 text-foreground transition-all"
+                    />
+                </div>
             )}
         </div>
 
         {/* Bottom Controls */}
-        <div className="relative z-20 bg-dark/80 backdrop-blur-xl border-t border-white/5 pb-24 pt-6 rounded-t-3xl">
+        <div className={`relative z-20 pb-24 pt-6 rounded-t-3xl border-t border-white/10 ${isCameraMode ? 'bg-black/80 backdrop-blur-xl border-white/10' : 'bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-gray-200 dark:border-white/5 shadow-[0_-5px_20px_rgba(0,0,0,0.05)]'}`}>
             
             {/* Mode Selector */}
             <div className="flex justify-center gap-6 mb-8">
-                {[
-                    { id: 'AUDIO', icon: Mic, label: 'صوت' },
-                    { id: 'VIDEO', icon: Video, label: 'فيديو' },
-                    { id: 'IMAGE', icon: Camera, label: 'صورة' },
-                    { id: 'TEXT', icon: Type, label: 'نص' },
-                ].map((m) => (
+                {[{ id: 'AUDIO', icon: Mic, label: 'صوت' }, { id: 'VIDEO', icon: Video, label: 'فيديو' }, { id: 'IMAGE', icon: Camera, label: 'صورة' }, { id: 'TEXT', icon: Type, label: 'نص' }].map((m) => (
                     <button
                         key={m.id}
                         onClick={() => !isRecording && setMode(m.id as CaptureMode)}
-                        className={`flex flex-col items-center gap-2 transition-all duration-300 ${mode === m.id ? 'text-white -translate-y-1' : 'text-gray-500 hover:text-gray-300'}`}
+                        className={`flex flex-col items-center gap-2 transition-all duration-300 ${
+                            mode === m.id 
+                            ? (isCameraMode ? 'text-white -translate-y-1' : 'text-primary dark:text-white -translate-y-1')
+                            : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                        }`}
                     >
-                        <div className={`p-3 rounded-full ${mode === m.id ? 'bg-white/10' : 'bg-transparent'}`}>
+                        <div className={`p-3 rounded-2xl ${mode === m.id ? (isCameraMode ? 'bg-white/20' : 'bg-primary/10 dark:bg-white/10') : 'bg-transparent'}`}>
                             <m.icon size={20} />
                         </div>
-                        <span className="text-[10px] font-medium">{m.label}</span>
+                        <span className="text-[10px] font-bold">{m.label}</span>
                     </button>
                 ))}
             </div>
 
             {/* Action Button */}
             <div className="flex flex-col items-center gap-4 px-6">
-                
                 {mode === 'TEXT' ? (
                      <button 
                         onClick={openTextConfirmation}
                         disabled={!inputText.trim()}
-                        className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-4 rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
+                        className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-4 rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100 flex items-center justify-center gap-2"
                      >
+                        <Check size={20} />
                         حفظ الملاحظة
                      </button>
                 ) : (
                     <div className="flex items-center gap-4 w-full justify-center">
                         <button
                             onClick={() => {
-                                if (deviceError) return; // Disable main button if error
+                                if (deviceError) return;
                                 if (mode === 'IMAGE') captureImage();
                                 else if (isRecording) stopRecording();
                                 else startRecording();
                             }}
                             disabled={!!deviceError}
-                            className={`w-20 h-20 rounded-full flex items-center justify-center border-4 border-white transition-all duration-300 shadow-2xl ${
+                            className={`w-20 h-20 rounded-full flex items-center justify-center border-4 border-white dark:border-white/20 transition-all duration-300 shadow-2xl ${
                                 !!deviceError ? 'bg-gray-500 opacity-50 cursor-not-allowed' :
-                                isRecording 
-                                ? 'bg-red-500 scale-110' 
-                                : mode === 'IMAGE' 
-                                    ? 'bg-white text-dark' 
-                                    : 'bg-gradient-to-r from-primary to-secondary'
+                                isRecording ? 'bg-red-500 scale-110' : mode === 'IMAGE' ? 'bg-white text-dark' : 'bg-gradient-to-r from-primary to-secondary text-white'
                             }`}
                         >
-                            {isRecording ? (
-                                <div className="w-6 h-6 bg-white rounded-sm" />
-                            ) : mode === 'IMAGE' ? (
-                                <div className="w-16 h-16 rounded-full border-2 border-dark/20" />
-                            ) : (
-                                <div className="w-6 h-6 bg-white rounded-full" />
-                            )}
+                            {isRecording ? <div className="w-6 h-6 bg-white rounded-sm" /> : mode === 'IMAGE' ? <div className="w-16 h-16 rounded-full border-2 border-dark/20" /> : <div className="w-6 h-6 bg-white rounded-full" />}
                         </button>
                     </div>
                 )}
@@ -555,76 +439,32 @@ export const CaptureView: React.FC = () => {
         {/* Reminder Modal */}
         {showReminderModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                <div className="bg-card w-full max-w-sm rounded-2xl border border-white/10 shadow-2xl overflow-hidden">
-                    <div className="p-4 border-b border-white/10 flex justify-between items-center">
-                        <h3 className="font-bold text-white flex items-center gap-2">
+                <div className="bg-white dark:bg-card w-full max-w-sm rounded-2xl border border-gray-200 dark:border-white/10 shadow-2xl overflow-hidden">
+                    <div className="p-4 border-b border-gray-100 dark:border-white/10 flex justify-between items-center bg-gray-50 dark:bg-black/20">
+                        <h3 className="font-bold text-foreground flex items-center gap-2">
                             <Calendar size={18} className="text-secondary" />
                             تذكير بالذكرى
                         </h3>
-                        <button onClick={() => setShowReminderModal(false)} className="text-gray-400 hover:text-white">
+                        <button onClick={() => setShowReminderModal(false)} className="text-gray-400 hover:text-foreground">
                             <X size={20} />
                         </button>
                     </div>
-                    
                     <div className="p-6 space-y-6">
                         <div className="space-y-2">
-                            <label className="text-xs text-gray-400">تاريخ ووقت التذكير</label>
-                            <input 
-                                type="datetime-local" 
-                                value={reminderDate}
-                                onChange={(e) => setReminderDate(e.target.value)}
-                                className="w-full bg-black/20 border border-white/10 rounded-lg p-3 text-white focus:border-primary focus:outline-none [color-scheme:dark]"
-                            />
+                            <label className="text-xs font-bold text-gray-500 uppercase">التاريخ والوقت</label>
+                            <input type="datetime-local" value={reminderDate} onChange={(e) => setReminderDate(e.target.value)} className="w-full bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-foreground focus:border-primary focus:outline-none" />
                         </div>
-
                         <div className="space-y-2">
-                            <label className="text-xs text-gray-400">التكرار</label>
+                            <label className="text-xs font-bold text-gray-500 uppercase">التكرار</label>
                             <div className="grid grid-cols-3 gap-2">
                                 {['ONCE', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].map((freq) => (
-                                    <button
-                                        key={freq}
-                                        onClick={() => setReminderFreq(freq as ReminderFrequency)}
-                                        className={`text-xs py-2 rounded-lg border transition-all ${
-                                            reminderFreq === freq 
-                                            ? 'bg-secondary/20 border-secondary text-secondary' 
-                                            : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10'
-                                        }`}
-                                    >
-                                        {freq === 'ONCE' ? 'مرة واحدة' : 
-                                         freq === 'DAILY' ? 'يومياً' : 
-                                         freq === 'WEEKLY' ? 'أسبوعياً' : 
-                                         freq === 'MONTHLY' ? 'شهرياً' : 'سنوياً'}
+                                    <button key={freq} onClick={() => setReminderFreq(freq as ReminderFrequency)} className={`text-xs py-2 rounded-lg border transition-all ${reminderFreq === freq ? 'bg-secondary/10 border-secondary text-secondary font-bold' : 'bg-gray-50 dark:bg-white/5 border-transparent text-gray-500 hover:bg-gray-100 dark:hover:bg-white/10'}`}>
+                                        {freq === 'ONCE' ? 'مرة واحدة' : freq === 'DAILY' ? 'يومياً' : freq === 'WEEKLY' ? 'أسبوعياً' : freq === 'MONTHLY' ? 'شهرياً' : 'سنوياً'}
                                     </button>
                                 ))}
                             </div>
                         </div>
-
-                        <button 
-                            onClick={saveReminder}
-                            className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-3 rounded-xl transition-colors"
-                        >
-                            تأكيد التذكير
-                        </button>
-                        
-                         {/* Calendar Button inside modal (Active only if date is selected) */}
-                         {reminderDate && (
-                             <div className="border-t border-white/10 pt-4 mt-2">
-                                 <button
-                                     onClick={() => {
-                                        const tempMemory: MemoryItem = {
-                                            id: 'temp', type: MediaType.TEXT, content: '', createdAt: Date.now(), tags: [],
-                                            summary: 'تذكير جديد',
-                                            reminder: { timestamp: new Date(reminderDate).getTime(), frequency: reminderFreq }
-                                        };
-                                        generateGoogleCalendarLink(tempMemory);
-                                     }}
-                                     className="w-full flex items-center justify-center gap-2 text-xs text-blue-400 hover:underline"
-                                 >
-                                    <CalendarDays size={14} />
-                                     إضافة إلى تقويم الهاتف (Google Calendar)
-                                 </button>
-                             </div>
-                         )}
+                        <button onClick={saveReminder} className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-3 rounded-xl transition-colors">تأكيد التذكير</button>
                     </div>
                 </div>
             </div>
@@ -632,73 +472,31 @@ export const CaptureView: React.FC = () => {
 
         {/* Confirmation Modal */}
         {showConfirmModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                <div className="bg-card w-full max-w-sm rounded-2xl border border-white/10 shadow-2xl overflow-hidden p-6 text-center space-y-6">
-                    <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mx-auto text-primary">
-                        {pendingCapture?.type === MediaType.TEXT ? <Type size={32}/> : 
-                         pendingCapture?.type === MediaType.IMAGE ? <Camera size={32}/> :
-                         pendingCapture?.type === MediaType.VIDEO ? <Video size={32}/> : <Mic size={32}/>}
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                <div className="bg-white dark:bg-card w-full max-w-sm rounded-2xl border border-gray-200 dark:border-white/10 shadow-2xl overflow-hidden p-6 text-center space-y-6">
+                    <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto text-primary">
+                        {pendingCapture?.type === MediaType.TEXT ? <Type size={32}/> : pendingCapture?.type === MediaType.IMAGE ? <Camera size={32}/> : pendingCapture?.type === MediaType.VIDEO ? <Video size={32}/> : <Mic size={32}/>}
                     </div>
                     
                     <div className="space-y-2">
-                        <h3 className="text-xl font-bold text-white">تأكيد الحفظ</h3>
-                        <p className="text-gray-400 text-sm">
-                            {pendingCapture?.type === MediaType.TEXT 
-                                ? 'هل تريد حفظ هذه الملاحظة؟' 
-                                : 'هل تريد حفظ هذا المحتوى وتحليله؟'}
-                        </p>
+                        <h3 className="text-xl font-bold text-foreground">تأكيد الحفظ</h3>
+                        <p className="text-gray-500 text-sm">هل تريد حفظ هذا المحتوى وتحليله؟</p>
                     </div>
 
-                    {/* Preview for Image */}
                     {pendingCapture?.type === MediaType.IMAGE && pendingCapture.blob && (
-                         <div className="rounded-xl overflow-hidden border border-white/10 max-h-48 bg-black/20">
+                         <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-white/10 max-h-48 bg-gray-100 dark:bg-black/20">
                              <img src={URL.createObjectURL(pendingCapture.blob)} className="w-full h-full object-contain" alt="Preview" />
                          </div>
                     )}
 
-                    {/* Preview for Text */}
-                    {pendingCapture?.type === MediaType.TEXT && (
-                        <div className="bg-white/5 rounded-xl p-3 text-right text-xs text-gray-300 max-h-32 overflow-y-auto leading-relaxed border border-white/5">
-                            {inputText}
-                        </div>
-                    )}
-
-                    {/* Warning if Audio/Video */}
-                    {(pendingCapture?.type === MediaType.AUDIO || pendingCapture?.type === MediaType.VIDEO) && (
-                        <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 flex items-start gap-2 text-left">
-                            <AlertCircle size={16} className="text-yellow-500 shrink-0 mt-0.5" />
-                            <span className="text-[10px] text-yellow-200/80 leading-tight">
-                                سيتم إرسال هذا التسجيل إلى الذكاء الاصطناعي لاستخراج النص والبيانات.
-                            </span>
-                        </div>
-                    )}
-
-                    {/* Set Reminder Button inside Confirmation */}
-                    <button 
-                        onClick={() => setShowReminderModal(true)}
-                        className={`w-full py-3 rounded-xl font-medium transition-colors border flex items-center justify-center gap-2 ${
-                            activeReminder 
-                            ? 'bg-secondary/20 text-secondary border-secondary/50' 
-                            : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'
-                        }`}
-                    >
+                    <button onClick={() => setShowReminderModal(true)} className={`w-full py-3 rounded-xl font-medium transition-colors border flex items-center justify-center gap-2 ${activeReminder ? 'bg-secondary/10 text-secondary border-secondary/50' : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-300'}`}>
                         <Bell size={16} fill={activeReminder ? "currentColor" : "none"} className={activeReminder ? "animate-pulse" : ""} />
-                        {activeReminder ? 'تم ضبط التذكير' : 'إضافة تذكير لهذا التسجيل'}
+                        {activeReminder ? 'تم ضبط التذكير' : 'إضافة تذكير'}
                     </button>
 
                     <div className="grid grid-cols-2 gap-3">
-                        <button 
-                            onClick={cancelSave}
-                            className="py-3 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 font-medium transition-colors"
-                        >
-                            إلغاء
-                        </button>
-                        <button 
-                            onClick={confirmSave}
-                            className="py-3 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold transition-colors shadow-lg shadow-primary/20"
-                        >
-                            حفظ ومتابعة
-                        </button>
+                        <button onClick={cancelSave} className="py-3 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 font-medium transition-colors">إلغاء</button>
+                        <button onClick={confirmSave} className="py-3 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold transition-colors shadow-lg shadow-primary/20">حفظ ومتابعة</button>
                     </div>
                 </div>
             </div>
