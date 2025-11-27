@@ -1,9 +1,9 @@
-
 import React, { useState, useEffect } from 'react';
 import { getAllReminders, saveMemory } from '../services/db';
 import { generateGoogleCalendarLink, openCalendarSearch } from '../services/calendarService';
 import { MemoryItem, MediaType, TaskCategory, ReminderFrequency } from '../types';
 import { getSettings } from '../services/settingsService';
+import { reminderService } from '../services/reminderService';
 import { Calendar, Clock, CheckCircle2, Circle, AlertCircle, X, Check, Layers, Tag, Briefcase, Heart, User, DollarSign, PartyPopper, Hash, Palette, Plus, CalendarPlus, Search, Edit2, Mic, MicOff } from 'lucide-react';
 
 interface TaskGroup {
@@ -283,12 +283,16 @@ export const ScheduleView: React.FC = () => {
             else if (freq === 'YEARLY') d.setFullYear(d.getFullYear() + interval);
             nextTimestamp = d.getTime();
         }
-        await saveMemory({ ...originalTask, reminder: { ...originalTask.reminder, timestamp: nextTimestamp } });
+        const updated = { ...originalTask, reminder: { ...originalTask.reminder, timestamp: nextTimestamp } };
+        await saveMemory(updated);
+        await reminderService.scheduleNotification(updated); // Reschedule next
+
         if (note.trim()) {
             await saveMemory({ id: crypto.randomUUID(), type: MediaType.TEXT, content: note, summary: `تم إنجاز: ${originalTask.summary}`, createdAt: Date.now(), tags: ['إنجاز', 'سجل_مواعيد'], isCompleted: true, completionNote: note });
         }
     } else {
         await saveMemory({ ...originalTask, isCompleted: true, completionNote: note || undefined });
+        await reminderService.cancelNotification(originalTask.id); // Cancel notification
     }
     setShowCompleteModal(false); loadTasks();
   };
@@ -332,7 +336,8 @@ export const ScheduleView: React.FC = () => {
       }
 
       await saveMemory(memory);
-      
+      if (memory.reminder) await reminderService.scheduleNotification(memory); // Schedule Native
+
       if (syncAddToCalendar) {
           generateGoogleCalendarLink(memory);
       }
