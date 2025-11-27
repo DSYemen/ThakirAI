@@ -3,7 +3,7 @@ import { MemoryItem, MediaType } from '../types';
 
 const DB_NAME = 'ThakiraDB';
 const STORE_NAME = 'memories';
-const VERSION = 6; // Upgraded to 6 for schedule features
+const VERSION = 7; // Upgraded to 7 for interval support
 
 const openDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {

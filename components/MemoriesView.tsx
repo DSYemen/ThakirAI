@@ -280,6 +280,7 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
   const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(null);
   const [reminderDate, setReminderDate] = useState("");
   const [reminderFreq, setReminderFreq] = useState<ReminderFrequency>('ONCE');
+  const [reminderInterval, setReminderInterval] = useState<number>(1);
 
   // Selection Mode State
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -366,7 +367,7 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
       try {
           const analysis = await analyzeMedia(memory.type, memory.content);
           let finalReminder = memory.reminder;
-          if (!finalReminder && analysis.detectedReminder) finalReminder = { timestamp: new Date(analysis.detectedReminder.isoTimestamp).getTime(), frequency: analysis.detectedReminder.frequency };
+          if (!finalReminder && analysis.detectedReminder) finalReminder = { timestamp: new Date(analysis.detectedReminder.isoTimestamp).getTime(), frequency: analysis.detectedReminder.frequency, interval: analysis.detectedReminder.interval || 1 };
           const updated: MemoryItem = { ...memory, transcription: analysis.transcription, summary: analysis.summary, tags: analysis.tags, reminder: finalReminder, analysisStatus: 'COMPLETED' };
           await saveMemory(updated); setMemories(prev => prev.map(m => m.id === memory.id ? updated : m));
       } catch (err) { const failed: MemoryItem = { ...memory, analysisStatus: 'FAILED', summary: "فشل التحليل" }; await saveMemory(failed); setMemories(prev => prev.map(m => m.id === memory.id ? failed : m)); }
@@ -375,13 +376,18 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
   const handleExportPDF = (e: React.MouseEvent, memory?: MemoryItem) => { e.stopPropagation(); setShowMenu(false); if (memory) setPrintableMemories([memory]); else { setLoading(true); setPrintableMemories(memories); setLoading(false); } };
   const openReminderModal = (e: React.MouseEvent, memory: MemoryItem) => {
       e.stopPropagation(); setSelectedMemoryId(memory.id);
-      if (memory.reminder) { const date = new Date(memory.reminder.timestamp); setReminderDate(new Date(date.getTime() - (date.getTimezoneOffset() * 60000)).toISOString().slice(0, 16)); setReminderFreq(memory.reminder.frequency); }
-      else { setReminderDate(""); setReminderFreq('ONCE'); }
+      if (memory.reminder) { 
+          const date = new Date(memory.reminder.timestamp); 
+          setReminderDate(new Date(date.getTime() - (date.getTimezoneOffset() * 60000)).toISOString().slice(0, 16)); 
+          setReminderFreq(memory.reminder.frequency); 
+          setReminderInterval(memory.reminder.interval || 1);
+      }
+      else { setReminderDate(""); setReminderFreq('ONCE'); setReminderInterval(1); }
       setReminderModalOpen(true);
   };
   const saveReminder = async () => {
       if (!selectedMemoryId) return; const memory = memories.find(m => m.id === selectedMemoryId); if (!memory) return;
-      const updated = { ...memory, reminder: reminderDate ? { timestamp: new Date(reminderDate).getTime(), frequency: reminderFreq } : undefined };
+      const updated = { ...memory, reminder: reminderDate ? { timestamp: new Date(reminderDate).getTime(), frequency: reminderFreq, interval: reminderInterval } : undefined };
       setMemories(prev => prev.map(m => m.id === selectedMemoryId ? updated : m)); await saveMemory(updated); setReminderModalOpen(false);
   };
   const togglePlay = (id: string) => {
@@ -425,6 +431,15 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
   const FilterButton = ({ type, label, icon: Icon }: { type: MediaType | 'ALL', label: string, icon: any }) => (
       <button onClick={() => setFilterType(type)} title={label} className={`flex items-center justify-center w-9 h-9 rounded-full transition-all duration-300 ${filterType === type ? 'bg-primary text-white shadow-md scale-110 z-10' : 'bg-white/50 dark:bg-white/5 text-gray-500 hover:text-primary hover:bg-white dark:hover:bg-white/10'}`}><Icon size={16} /></button>
   );
+
+  const freqOptions: {val: ReminderFrequency, label: string}[] = [
+    { val: 'ONCE', label: 'مرة واحدة' },
+    { val: 'HOURLY', label: 'ساعات' },
+    { val: 'DAILY', label: 'أيام' },
+    { val: 'WEEKLY', label: 'أسابيع' },
+    { val: 'MONTHLY', label: 'أشهر' },
+    { val: 'YEARLY', label: 'سنوات' },
+  ];
 
   return (
     <div className="flex flex-col h-full bg-dark relative">
@@ -571,8 +586,42 @@ export const MemoriesView: React.FC<{ highlightedMemoryId?: string | null }> = (
                         <button onClick={() => setReminderModalOpen(false)} className="text-gray-400 hover:text-foreground"><X size={20} /></button>
                     </div>
                     <div className="p-6 space-y-6">
-                        <input type="datetime-local" value={reminderDate} onChange={(e) => setReminderDate(e.target.value)} className="w-full bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-foreground" />
-                        <div className="grid grid-cols-3 gap-2">{['ONCE', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].map((freq) => (<button key={freq} onClick={() => setReminderFreq(freq as ReminderFrequency)} className={`text-xs py-2 rounded-lg border ${reminderFreq === freq ? 'bg-secondary/10 border-secondary text-secondary' : 'bg-gray-50 dark:bg-white/5 border-transparent text-gray-500'}`}>{freq}</button>))}</div>
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-gray-500 uppercase">التاريخ والوقت</label>
+                            <input type="datetime-local" value={reminderDate} onChange={(e) => setReminderDate(e.target.value)} className="w-full bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-foreground focus:border-primary focus:outline-none" />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-gray-500 uppercase">نمط التكرار</label>
+                            <div className="flex flex-col gap-3">
+                                <div className="grid grid-cols-3 gap-2">
+                                    {freqOptions.map((opt) => (
+                                        <button key={opt.val} onClick={() => setReminderFreq(opt.val)} className={`text-xs py-2 rounded-lg border transition-all ${reminderFreq === opt.val ? 'bg-secondary/10 border-secondary text-secondary font-bold' : 'bg-gray-50 dark:bg-white/5 border-transparent text-gray-500 hover:bg-gray-100 dark:hover:bg-white/10'}`}>
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                {reminderFreq !== 'ONCE' && (
+                                    <div className="flex items-center gap-3 bg-gray-50 dark:bg-white/5 p-3 rounded-xl border border-gray-100 dark:border-white/10">
+                                        <label className="text-xs font-bold text-gray-500 whitespace-nowrap">كل</label>
+                                        <input 
+                                            type="number" 
+                                            min="1" 
+                                            max="100" 
+                                            value={reminderInterval} 
+                                            onChange={(e) => setReminderInterval(parseInt(e.target.value) || 1)} 
+                                            className="w-16 text-center bg-white dark:bg-black/30 border border-gray-200 dark:border-white/10 rounded-lg p-1 text-sm font-bold"
+                                        />
+                                        <span className="text-xs font-bold text-gray-500">
+                                            {reminderFreq === 'HOURLY' ? (reminderInterval > 1 ? 'ساعات' : 'ساعة') :
+                                             reminderFreq === 'DAILY' ? (reminderInterval > 1 ? 'أيام' : 'يوم') :
+                                             reminderFreq === 'WEEKLY' ? (reminderInterval > 1 ? 'أسابيع' : 'أسبوع') :
+                                             reminderFreq === 'MONTHLY' ? (reminderInterval > 1 ? 'أشهر' : 'شهر') :
+                                             (reminderInterval > 1 ? 'سنوات' : 'سنة')}
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                         <button onClick={saveReminder} className="w-full bg-primary text-white font-bold py-3 rounded-xl">حفظ</button>
                     </div>
                 </div>

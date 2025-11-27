@@ -61,6 +61,13 @@ const TaskCard: React.FC<TaskCardProps> = ({ item, isOverdue = false, onComplete
         }
     };
 
+    const interval = item.reminder?.interval || 1;
+    const freqLabel = item.reminder?.frequency === 'HOURLY' ? (interval > 1 ? `${interval} ساعات` : 'كل ساعة') :
+                      item.reminder?.frequency === 'DAILY' ? (interval > 1 ? `كل ${interval} أيام` : 'يومياً') :
+                      item.reminder?.frequency === 'WEEKLY' ? (interval > 1 ? `كل ${interval} أسابيع` : 'أسبوعياً') :
+                      item.reminder?.frequency === 'MONTHLY' ? (interval > 1 ? `كل ${interval} أشهر` : 'شهرياً') :
+                      item.reminder?.frequency === 'YEARLY' ? (interval > 1 ? `كل ${interval} سنوات` : 'سنوياً') : '';
+
     return (
         <div className={`relative group flex items-start gap-3 p-4 rounded-2xl border transition-all shadow-sm ${styles.bg} ${styles.border}`}>
             <button 
@@ -104,7 +111,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ item, isOverdue = false, onComplete
                     )}
                     {item.reminder?.frequency !== 'ONCE' && (
                         <span className="text-[10px] font-bold bg-white/50 dark:bg-black/20 text-gray-600 dark:text-gray-300 px-2 py-1 rounded-md">
-                            {item.reminder?.frequency === 'DAILY' ? 'يومياً' : item.reminder?.frequency === 'WEEKLY' ? 'أسبوعياً' : item.reminder?.frequency}
+                            {freqLabel}
                         </span>
                     )}
                 </div>
@@ -151,6 +158,7 @@ export const ScheduleView: React.FC = () => {
   const [taskSummary, setTaskSummary] = useState("");
   const [taskDate, setTaskDate] = useState("");
   const [taskFreq, setTaskFreq] = useState<ReminderFrequency>('ONCE');
+  const [taskInterval, setTaskInterval] = useState<number>(1);
   const [syncAddToCalendar, setSyncAddToCalendar] = useState(true);
   const [isListening, setIsListening] = useState(false);
 
@@ -205,9 +213,11 @@ export const ScheduleView: React.FC = () => {
              const isoString = new Date(date.getTime() - (date.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
              setTaskDate(isoString);
              setTaskFreq(task.reminder.frequency);
+             setTaskInterval(task.reminder.interval || 1);
           } else {
              setTaskDate("");
              setTaskFreq('ONCE');
+             setTaskInterval(1);
           }
           setSyncAddToCalendar(false); 
       } else {
@@ -219,6 +229,7 @@ export const ScheduleView: React.FC = () => {
           now.setMinutes(0, 0, 0); 
           setTaskDate(new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16));
           setTaskFreq('ONCE');
+          setTaskInterval(1);
           setSyncAddToCalendar(true); 
       }
       setShowTaskModal(true);
@@ -262,12 +273,14 @@ export const ScheduleView: React.FC = () => {
         const now = Date.now();
         let nextTimestamp = originalTask.reminder.timestamp;
         const freq = originalTask.reminder.frequency;
+        const interval = originalTask.reminder.interval || 1;
         while (nextTimestamp <= now) {
             const d = new Date(nextTimestamp);
-            if (freq === 'DAILY') d.setDate(d.getDate() + 1);
-            else if (freq === 'WEEKLY') d.setDate(d.getDate() + 7);
-            else if (freq === 'MONTHLY') d.setMonth(d.getMonth() + 1);
-            else if (freq === 'YEARLY') d.setFullYear(d.getFullYear() + 1);
+            if (freq === 'HOURLY') d.setTime(d.getTime() + (interval * 60 * 60 * 1000));
+            else if (freq === 'DAILY') d.setDate(d.getDate() + interval);
+            else if (freq === 'WEEKLY') d.setDate(d.getDate() + (interval * 7));
+            else if (freq === 'MONTHLY') d.setMonth(d.getMonth() + interval);
+            else if (freq === 'YEARLY') d.setFullYear(d.getFullYear() + interval);
             nextTimestamp = d.getTime();
         }
         await saveMemory({ ...originalTask, reminder: { ...originalTask.reminder, timestamp: nextTimestamp } });
@@ -293,7 +306,8 @@ export const ScheduleView: React.FC = () => {
               summary: taskSummary,
               reminder: {
                   timestamp: new Date(taskDate).getTime(),
-                  frequency: taskFreq
+                  frequency: taskFreq,
+                  interval: taskInterval
               }
           };
       } else {
@@ -308,7 +322,8 @@ export const ScheduleView: React.FC = () => {
               tags: ['يدوي', 'موعد'],
               reminder: {
                   timestamp: new Date(taskDate).getTime(),
-                  frequency: taskFreq
+                  frequency: taskFreq,
+                  interval: taskInterval
               },
               category: PRESET_CATEGORIES[5], 
               isFavorite: false,
@@ -353,6 +368,15 @@ export const ScheduleView: React.FC = () => {
   );
 
   const pendingCount = tasks.overdue.length + tasks.today.length + tasks.tomorrow.length + tasks.upcoming.length;
+
+  const freqOptions: {val: ReminderFrequency, label: string}[] = [
+    { val: 'ONCE', label: 'مرة واحدة' },
+    { val: 'HOURLY', label: 'ساعات' },
+    { val: 'DAILY', label: 'أيام' },
+    { val: 'WEEKLY', label: 'أسابيع' },
+    { val: 'MONTHLY', label: 'أشهر' },
+    { val: 'YEARLY', label: 'سنوات' },
+  ];
 
   return (
     <div className="flex flex-col h-full bg-dark relative">
@@ -551,13 +575,35 @@ export const ScheduleView: React.FC = () => {
                     </div>
 
                     <div>
-                        <label className="text-xs font-bold text-gray-500 mb-1.5 block">التكرار</label>
-                        <div className="grid grid-cols-3 gap-2">
-                            {['ONCE', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].map((freq) => (
-                                <button key={freq} onClick={() => setTaskFreq(freq as ReminderFrequency)} className={`text-[10px] py-2 rounded-lg border transition-all ${taskFreq === freq ? 'bg-primary/10 border-primary text-primary font-bold' : 'bg-gray-50 dark:bg-white/5 border-transparent text-gray-500'}`}>
-                                    {freq === 'ONCE' ? 'مرة' : freq === 'DAILY' ? 'يومياً' : freq === 'WEEKLY' ? 'أسبوعياً' : freq === 'MONTHLY' ? 'شهرياً' : 'سنوياً'}
-                                </button>
-                            ))}
+                        <label className="text-xs font-bold text-gray-500 mb-1.5 block">نمط التكرار</label>
+                        <div className="flex flex-col gap-3">
+                            <div className="grid grid-cols-3 gap-2">
+                                {freqOptions.map((opt) => (
+                                    <button key={opt.val} onClick={() => setTaskFreq(opt.val)} className={`text-[10px] py-2 rounded-lg border transition-all ${taskFreq === opt.val ? 'bg-primary/10 border-primary text-primary font-bold' : 'bg-gray-50 dark:bg-white/5 border-transparent text-gray-500'}`}>
+                                        {opt.label}
+                                    </button>
+                                ))}
+                            </div>
+                            {taskFreq !== 'ONCE' && (
+                                <div className="flex items-center gap-3 bg-gray-50 dark:bg-white/5 p-3 rounded-xl border border-gray-100 dark:border-white/10">
+                                    <label className="text-xs font-bold text-gray-500 whitespace-nowrap">كل</label>
+                                    <input 
+                                        type="number" 
+                                        min="1" 
+                                        max="100" 
+                                        value={taskInterval} 
+                                        onChange={(e) => setTaskInterval(parseInt(e.target.value) || 1)} 
+                                        className="w-16 text-center bg-white dark:bg-black/30 border border-gray-200 dark:border-white/10 rounded-lg p-1 text-sm font-bold"
+                                    />
+                                    <span className="text-xs font-bold text-gray-500">
+                                        {taskFreq === 'HOURLY' ? (taskInterval > 1 ? 'ساعات' : 'ساعة') :
+                                         taskFreq === 'DAILY' ? (taskInterval > 1 ? 'أيام' : 'يوم') :
+                                         taskFreq === 'WEEKLY' ? (taskInterval > 1 ? 'أسابيع' : 'أسبوع') :
+                                         taskFreq === 'MONTHLY' ? (taskInterval > 1 ? 'أشهر' : 'شهر') :
+                                         (taskInterval > 1 ? 'سنوات' : 'سنة')}
+                                    </span>
+                                </div>
+                            )}
                         </div>
                     </div>
 

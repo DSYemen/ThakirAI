@@ -20,13 +20,18 @@ export const generateGoogleCalendarLink = (memory: MemoryItem) => {
 
   if (memory.reminder.frequency !== 'ONCE') {
       const freqMap: Record<string, string> = {
+          'HOURLY': 'HOURLY',
           'DAILY': 'DAILY',
           'WEEKLY': 'WEEKLY',
           'MONTHLY': 'MONTHLY',
           'YEARLY': 'YEARLY'
       };
       if (freqMap[memory.reminder.frequency]) {
-          url += `&recur=RRULE:FREQ=${freqMap[memory.reminder.frequency]}`;
+          let rrule = `RRULE:FREQ=${freqMap[memory.reminder.frequency]}`;
+          if (memory.reminder.interval && memory.reminder.interval > 1) {
+              rrule += `;INTERVAL=${memory.reminder.interval}`;
+          }
+          url += `&recur=${rrule}`;
       }
   }
 

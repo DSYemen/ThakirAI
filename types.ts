@@ -6,11 +6,12 @@ export enum MediaType {
   VIDEO = 'VIDEO'
 }
 
-export type ReminderFrequency = 'ONCE' | 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY';
+export type ReminderFrequency = 'ONCE' | 'HOURLY' | 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY';
 
 export interface Reminder {
   timestamp: number;
   frequency: ReminderFrequency;
+  interval?: number; // New field: e.g., 2 for "Every 2 days"
 }
 
 export interface TaskCategory {

@@ -31,6 +31,7 @@ interface AnalysisResult {
     detectedReminder?: {
         isoTimestamp: string;
         frequency: ReminderFrequency;
+        interval?: number;
     } | null;
 }
 
@@ -63,14 +64,16 @@ export const analyzeMedia = async (
     2. Transcribe any speech or text accurately in its original language.
     3. Provide the 'summary' and 'tags' in ${langName}.
     4. Detect any reminders relative to the User's Current Time provided above.
-       - Example: If user says "tomorrow at 9am", calculate the ISO timestamp based on ${userTime} in ${timeZone}.
+       - Example: "Tomorrow at 9am" -> ISO timestamp.
+       - Example: "Every 2 weeks" -> frequency: WEEKLY, interval: 2.
+       - Example: "Every 6 hours" -> frequency: HOURLY, interval: 6.
     `;
 
     let prompt = currentContext;
     const parts: any[] = [];
 
     if (type === MediaType.AUDIO) {
-        prompt += "\nTask: Transcribe speech, summarize, extract tags. If a reminder is mentioned (e.g., 'remind me everyday', 'doctor appointment tomorrow'), extract reminder data.";
+        prompt += "\nTask: Transcribe speech, summarize, extract tags. If a reminder is mentioned (e.g., 'remind me everyday', 'every 2 days'), extract reminder data.";
         parts.push({
         inlineData: {
             mimeType: "audio/mp3", 
@@ -78,7 +81,7 @@ export const analyzeMedia = async (
         }
         });
     } else if (type === MediaType.IMAGE) {
-        prompt += "\nTask: Describe image, identify objects/text, extract tags. If image contains event info (ticket, invitation, note), extract reminder data.";
+        prompt += "\nTask: Describe image, identify objects/text, extract tags. If image contains event info (ticket, invitation), extract reminder data.";
         parts.push({
         inlineData: {
             mimeType: "image/jpeg",
@@ -94,7 +97,7 @@ export const analyzeMedia = async (
         }
         });
     } else {
-        prompt += "\nTask: Summarize text, extract tags. If a reminder is requested (e.g., 'remind me to buy milk tonight'), extract reminder data.";
+        prompt += "\nTask: Summarize text, extract tags. If a reminder is requested (e.g., 'remind me every 4 hours'), extract reminder data.";
     }
 
     if (textContext) {
@@ -126,8 +129,12 @@ export const analyzeMedia = async (
                     isoTimestamp: { type: Type.STRING, description: "ISO 8601 timestamp (UTC) of the reminder event" },
                     frequency: { 
                         type: Type.STRING, 
-                        enum: ['ONCE', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'],
+                        enum: ['ONCE', 'HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'],
                         description: "Recurrence frequency" 
+                    },
+                    interval: {
+                        type: Type.INTEGER,
+                        description: "Interval count (e.g., 2 for every 2 weeks). Default 1."
                     }
                 }
             }

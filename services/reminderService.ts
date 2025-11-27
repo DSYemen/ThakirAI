@@ -84,6 +84,7 @@ class ReminderService {
       if (!memory.reminder) return;
 
       const freq = memory.reminder.frequency;
+      const interval = memory.reminder.interval || 1; // Default to 1 if not set
 
       if (freq === 'ONCE') {
           // It was a one-time reminder, so we remove the reminder object
@@ -102,10 +103,11 @@ class ReminderService {
       
       while (nextTimestamp <= now) {
            switch (freq) {
-                case 'DAILY': dateObj.setDate(dateObj.getDate() + 1); break;
-                case 'WEEKLY': dateObj.setDate(dateObj.getDate() + 7); break;
-                case 'MONTHLY': dateObj.setMonth(dateObj.getMonth() + 1); break;
-                case 'YEARLY': dateObj.setFullYear(dateObj.getFullYear() + 1); break;
+                case 'HOURLY': dateObj.setTime(dateObj.getTime() + (interval * 60 * 60 * 1000)); break;
+                case 'DAILY': dateObj.setDate(dateObj.getDate() + interval); break;
+                case 'WEEKLY': dateObj.setDate(dateObj.getDate() + (interval * 7)); break;
+                case 'MONTHLY': dateObj.setMonth(dateObj.getMonth() + interval); break;
+                case 'YEARLY': dateObj.setFullYear(dateObj.getFullYear() + interval); break;
            }
            nextTimestamp = dateObj.getTime();
       }

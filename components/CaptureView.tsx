@@ -25,6 +25,7 @@ export const CaptureView: React.FC = () => {
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [reminderDate, setReminderDate] = useState("");
   const [reminderFreq, setReminderFreq] = useState<ReminderFrequency>('ONCE');
+  const [reminderInterval, setReminderInterval] = useState<number>(1);
   const [activeReminder, setActiveReminder] = useState<Reminder | undefined>(undefined);
 
   // Confirmation State
@@ -208,7 +209,8 @@ export const CaptureView: React.FC = () => {
             if (!finalReminder && analysis.detectedReminder) {
                 finalReminder = {
                     timestamp: new Date(analysis.detectedReminder.isoTimestamp).getTime(),
-                    frequency: analysis.detectedReminder.frequency
+                    frequency: analysis.detectedReminder.frequency,
+                    interval: analysis.detectedReminder.interval || 1
                 };
                 setAutoReminderDetected(true);
             }
@@ -247,7 +249,7 @@ export const CaptureView: React.FC = () => {
     analyzeMedia(MediaType.TEXT, "", inputText).then(async (analysis) => {
         let finalReminder = activeReminder;
         if (!finalReminder && analysis.detectedReminder) {
-            finalReminder = { timestamp: new Date(analysis.detectedReminder.isoTimestamp).getTime(), frequency: analysis.detectedReminder.frequency };
+            finalReminder = { timestamp: new Date(analysis.detectedReminder.isoTimestamp).getTime(), frequency: analysis.detectedReminder.frequency, interval: analysis.detectedReminder.interval || 1 };
             setAutoReminderDetected(true);
         }
         await saveMemory({ ...memory, summary: analysis.summary, tags: analysis.tags, reminder: finalReminder, analysisStatus: 'COMPLETED' } as MemoryItem);
@@ -276,13 +278,22 @@ export const CaptureView: React.FC = () => {
   };
 
   const saveReminder = () => {
-      if (reminderDate) setActiveReminder({ timestamp: new Date(reminderDate).getTime(), frequency: reminderFreq });
+      if (reminderDate) setActiveReminder({ timestamp: new Date(reminderDate).getTime(), frequency: reminderFreq, interval: reminderInterval });
       else setActiveReminder(undefined);
       setShowReminderModal(false);
   };
 
   // Helper to determine text color based on background logic
   const isCameraMode = mode === 'VIDEO' || mode === 'IMAGE';
+
+  const freqOptions: {val: ReminderFrequency, label: string}[] = [
+    { val: 'ONCE', label: 'مرة واحدة' },
+    { val: 'HOURLY', label: 'ساعات' },
+    { val: 'DAILY', label: 'أيام' },
+    { val: 'WEEKLY', label: 'أسابيع' },
+    { val: 'MONTHLY', label: 'أشهر' },
+    { val: 'YEARLY', label: 'سنوات' },
+  ];
   
   return (
     <div className="flex flex-col h-full bg-dark relative overflow-hidden">
@@ -455,13 +466,35 @@ export const CaptureView: React.FC = () => {
                             <input type="datetime-local" value={reminderDate} onChange={(e) => setReminderDate(e.target.value)} className="w-full bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-foreground focus:border-primary focus:outline-none" />
                         </div>
                         <div className="space-y-2">
-                            <label className="text-xs font-bold text-gray-500 uppercase">التكرار</label>
-                            <div className="grid grid-cols-3 gap-2">
-                                {['ONCE', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].map((freq) => (
-                                    <button key={freq} onClick={() => setReminderFreq(freq as ReminderFrequency)} className={`text-xs py-2 rounded-lg border transition-all ${reminderFreq === freq ? 'bg-secondary/10 border-secondary text-secondary font-bold' : 'bg-gray-50 dark:bg-white/5 border-transparent text-gray-500 hover:bg-gray-100 dark:hover:bg-white/10'}`}>
-                                        {freq === 'ONCE' ? 'مرة واحدة' : freq === 'DAILY' ? 'يومياً' : freq === 'WEEKLY' ? 'أسبوعياً' : freq === 'MONTHLY' ? 'شهرياً' : 'سنوياً'}
-                                    </button>
-                                ))}
+                            <label className="text-xs font-bold text-gray-500 uppercase">نمط التكرار</label>
+                            <div className="flex flex-col gap-3">
+                                <div className="grid grid-cols-3 gap-2">
+                                    {freqOptions.map((opt) => (
+                                        <button key={opt.val} onClick={() => setReminderFreq(opt.val)} className={`text-xs py-2 rounded-lg border transition-all ${reminderFreq === opt.val ? 'bg-secondary/10 border-secondary text-secondary font-bold' : 'bg-gray-50 dark:bg-white/5 border-transparent text-gray-500 hover:bg-gray-100 dark:hover:bg-white/10'}`}>
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                {reminderFreq !== 'ONCE' && (
+                                    <div className="flex items-center gap-3 bg-gray-50 dark:bg-white/5 p-3 rounded-xl border border-gray-100 dark:border-white/10">
+                                        <label className="text-xs font-bold text-gray-500 whitespace-nowrap">كل</label>
+                                        <input 
+                                            type="number" 
+                                            min="1" 
+                                            max="100" 
+                                            value={reminderInterval} 
+                                            onChange={(e) => setReminderInterval(parseInt(e.target.value) || 1)} 
+                                            className="w-16 text-center bg-white dark:bg-black/30 border border-gray-200 dark:border-white/10 rounded-lg p-1 text-sm font-bold"
+                                        />
+                                        <span className="text-xs font-bold text-gray-500">
+                                            {reminderFreq === 'HOURLY' ? (reminderInterval > 1 ? 'ساعات' : 'ساعة') :
+                                             reminderFreq === 'DAILY' ? (reminderInterval > 1 ? 'أيام' : 'يوم') :
+                                             reminderFreq === 'WEEKLY' ? (reminderInterval > 1 ? 'أسابيع' : 'أسبوع') :
+                                             reminderFreq === 'MONTHLY' ? (reminderInterval > 1 ? 'أشهر' : 'شهر') :
+                                             (reminderInterval > 1 ? 'سنوات' : 'سنة')}
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                         </div>
                         <button onClick={saveReminder} className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-3 rounded-xl transition-colors">تأكيد التذكير</button>
